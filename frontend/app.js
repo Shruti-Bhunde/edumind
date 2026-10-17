@@ -4,6 +4,7 @@
   const main = document.getElementById('main');
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const ID_KEY = 'edumind.learner';
+  const AUTH_KEY = 'edumind.auth';
 
   // ---------------------------------------------------------------- utilities
   const mem = {};
@@ -12,6 +13,48 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { mem[k] = v; } },
     del(k) { try { localStorage.removeItem(k); } catch { delete mem[k]; } },
   };
+
+  let currentUser = null;
+  try {
+    const raw = store.get(AUTH_KEY);
+    if (raw) currentUser = JSON.parse(raw);
+  } catch {
+    currentUser = null;
+  }
+
+  function setCurrentUser(user) {
+    currentUser = user;
+    if (user) {
+      store.set(AUTH_KEY, JSON.stringify(user));
+      document.body.classList.remove('not-authenticated');
+      if (user.learner_id) {
+        learnerId = user.learner_id;
+        store.set(ID_KEY, learnerId);
+      }
+    } else {
+      store.del(AUTH_KEY);
+      store.del(ID_KEY);
+      learnerId = null;
+      document.body.classList.add('not-authenticated');
+    }
+    updateNavUser();
+  }
+
+  function updateNavUser() {
+    const btn = document.getElementById('nav-profile');
+    const label = btn?.querySelector('.profile-label');
+    if (!btn || !label) return;
+    if (currentUser && currentUser.display_name) {
+      const firstName = currentUser.display_name.split(' ')[0];
+      label.textContent = firstName;
+      btn.title = `${currentUser.display_name} — Account & Preferences`;
+      btn.classList.add('logged-in');
+    } else {
+      label.textContent = 'Sign In';
+      btn.title = 'Sign In or Register';
+      btn.classList.remove('logged-in');
+    }
+  }
 
   // Tiny accessible DOM builder. Text is inserted as text nodes, never as raw HTML.
   function h(tag, props, ...kids) {
@@ -56,9 +99,18 @@
     return data;
   }
 
-  let learnerId = store.get(ID_KEY);
+  let learnerId = currentUser?.learner_id || null;
   async function ensureLearner() {
-    if (learnerId) return learnerId;
+    if (currentUser && currentUser.learner_id) {
+      learnerId = currentUser.learner_id;
+      store.set(ID_KEY, learnerId);
+      return learnerId;
+    }
+    if (learnerId && currentUser) return learnerId;
+    if (!currentUser) {
+      showAuthLanding('login');
+      throw new Error('Please sign in to access your learning data.');
+    }
     const r = await request('/api/learners', { method: 'POST' });
     learnerId = r.learner_id;
     store.set(ID_KEY, learnerId);
@@ -515,6 +567,10 @@
 
   // VIEW 1: STUDENT DASHBOARD (FR-02)
   async function showDashboard() {
+    if (!currentUser) {
+      showAuthLanding('login');
+      return;
+    }
     setActiveNav('nav-dashboard');
     view(spinner('Loading your learning dashboard…'));
 
@@ -582,6 +638,10 @@
 
   // VIEW 2: LEARN / TOPIC BROWSER (FR-03)
   async function showLearn() {
+    if (!currentUser) {
+      showAuthLanding('login');
+      return;
+    }
     setActiveNav('nav-learn');
     view(spinner('Loading topics…'));
 
@@ -653,6 +713,10 @@
 
   // VIEW 3: PRACTICE RUNNER (FR-04)
   async function startPractice(skillId) {
+    if (!currentUser) {
+      showAuthLanding('login');
+      return;
+    }
     setActiveNav('nav-practice');
     view(stepTracker('try'), spinner('Finding your practice question…'));
 
@@ -1409,6 +1473,10 @@
 
   // VIEW 7: PROGRESS & HISTORY (FR-08)
   async function showProgress() {
+    if (!currentUser) {
+      showAuthLanding('login');
+      return;
+    }
     setActiveNav('nav-progress');
     view(spinner('Loading your learning progress…'));
 
@@ -1479,6 +1547,10 @@
 
   // VIEW 8: QUIZ RUNNER (Gamified Quiz Mode)
   async function startQuiz(skillId) {
+    if (!currentUser) {
+      showAuthLanding('login');
+      return;
+    }
     setActiveNav('nav-quiz');
     view(spinner('Loading your quiz questions…'));
 
@@ -1603,20 +1675,914 @@
     renderQuestion();
   }
 
-  // VIEW 8: SESSION & PROFILE MODAL (FR-01)
-  function showProfileModal() {
-    const modalBackdrop = h('div', { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'session-modal-title' });
+  // ---------------------------------------------------- AUTH & PERSONALIZATION MODALS
+  const TOPIC_OPTIONS = [
+    { id: 'Space and Astronomy', icon: '🚀', label: 'Space & Astronomy' },
+    { id: 'Science and Experiments', icon: '🔬', label: 'Science & Experiments' },
+    { id: 'Technology and Computers', icon: '💻', label: 'Technology & Computers' },
+    { id: 'Artificial Intelligence and Robotics', icon: '🤖', label: 'AI & Robotics' },
+    { id: 'Nature and the Environment', icon: '🌿', label: 'Nature & Wildlife' },
+    { id: 'Sports and Games', icon: '⚽', label: 'Sports & Games' },
+    { id: 'Art, Music, and Creativity', icon: '🎨', label: 'Art, Music & Creativity' },
+    { id: 'Everyday Mathematics', icon: '🔢', label: 'Everyday Math' },
+    { id: 'Business and Money', icon: '💼', label: 'Business & Money' },
+    { id: 'General Knowledge', icon: '🌍', label: 'General Knowledge' },
+    { id: 'History and Geography', icon: '🏛️', label: 'History & World' },
+    { id: 'Something New / Surprise Me', icon: '✨', label: 'Surprise Me!' },
+  ];
 
-    const modalBox = h('div', { class: 'modal-box' },
-      h('h2', { id: 'session-modal-title', text: 'Learner Session & Privacy' }),
-      h('p', { text: 'EduMind operates on a strict privacy-first model. No email, password, or real name is ever collected.' }),
-      h('div', { class: 'field' },
-        h('label', { text: 'Anonymous Learner ID' }),
-        h('input', { type: 'text', readonly: true, value: learnerId || 'Session not initialized' })),
-      h('p', { class: 'hintline', text: 'Your progress is stored in your browser and synced anonymously with the local database.' }),
-      h('div', { class: 'actions' },
-        h('button', { class: 'btn secondary danger', type: 'button', onclick: deleteData, text: 'Delete all my data' }),
-        h('button', { class: 'btn', type: 'button', onclick: () => modalBackdrop.remove(), text: 'Done' })));
+  const STYLE_OPTIONS = [
+    { id: 'Simple explanations with examples', icon: '💡', title: 'Simple Explanations', desc: 'Clear, straightforward words with basic examples.' },
+    { id: 'Step-by-step breakdowns', icon: '📋', title: 'Step-by-Step Breakdowns', desc: 'Structured numbered steps guiding your solution.' },
+    { id: 'Real-world analogies', icon: '🌉', title: 'Real-World Analogies', desc: 'Metaphors connecting mathematics to everyday life.' },
+    { id: 'Visual explanations and diagrams', icon: '📊', title: 'Visuals & Diagrams', desc: 'Fraction bars, split shapes, and visual models.' },
+    { id: 'Small practice exercises', icon: '✏️', title: 'Small Practice Exercises', desc: 'Short practice tasks to test each concept.' },
+    { id: 'Stories and interesting facts', icon: '📖', title: 'Stories & Fun Facts', desc: 'Engaging real stories, history, and curious trivia.' },
+  ];
+
+  const DEPTH_OPTIONS = [
+    { id: 'Beginner', icon: '🌱', title: 'Beginner', desc: 'Simple words and basic foundational examples.' },
+    { id: 'Intermediate', icon: '⚖️', title: 'Intermediate', desc: 'Balanced vocabulary with standard middle-school depth.' },
+    { id: 'Advanced', icon: '🚀', title: 'Advanced', desc: 'Deeper technical exploration and challenging concepts.' },
+    { id: 'Adapt to me', icon: '🎯', title: 'Adapt to me', desc: 'Adjust depth naturally according to each question.' },
+  ];
+
+  const GOAL_OPTIONS = [
+    { id: 'Understanding difficult concepts', icon: '🧩', title: 'Master Tricky Concepts', desc: 'Unpack errors and fix stubborn misconceptions.' },
+    { id: 'Improving problem-solving', icon: '🎯', title: 'Sharpen Problem Solving', desc: 'Develop methodical, step-by-step critical reasoning.' },
+    { id: 'Learning topics beyond my syllabus', icon: '🌌', title: 'Explore Beyond Syllabus', desc: 'Discover advanced curiosities in CS, space, and math.' },
+    { id: 'Preparing for quizzes and exams', icon: '🏆', title: 'Quiz & Exam Prep', desc: 'Build speed and precision for upcoming tests.' },
+    { id: 'Building practical knowledge', icon: '🛠️', title: 'Practical Everyday Math', desc: 'Apply fractions to recipes, money, shopping, and sports.' },
+    { id: 'Exploring new interests', icon: '🔍', title: 'Discover New Passions', desc: 'Nurture curiosity across diverse modern subjects.' },
+  ];
+
+  function onProfileNavClick() {
+    if (currentUser) {
+      showProfilePreferencesModal();
+    } else {
+      showAuthLanding('login');
+    }
+  }
+
+  // 1. REUSABLE AUTH COMPONENT (Login & Registration)
+  function buildAuthComponent({ initialTab = 'login', onAuthSuccess, isModal = false, onClose = null }) {
+    const container = h('div', { class: 'auth-component-wrap' });
+
+    let currentTab = initialTab;
+    let isSubmitting = false;
+
+    const loginTabBtn = h('button', {
+      type: 'button',
+      class: 'auth-tab-btn' + (currentTab === 'login' ? ' active' : ''),
+      text: 'Sign In',
+      onclick: () => switchTab('login'),
+    });
+
+    const registerTabBtn = h('button', {
+      type: 'button',
+      class: 'auth-tab-btn' + (currentTab === 'register' ? ' active' : ''),
+      text: 'Create Account',
+      onclick: () => switchTab('register'),
+    });
+
+    const tabsNav = h('div', { class: 'auth-tabs' }, loginTabBtn, registerTabBtn);
+    const contentArea = h('div');
+
+    if (isModal && typeof onClose === 'function') {
+      container.append(
+        h('button', {
+          type: 'button',
+          class: 'modal-close-btn',
+          title: 'Close',
+          style: 'position: absolute; right: 1.25rem; top: 1.25rem; background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8;',
+          text: '✕',
+          onclick: onClose,
+        })
+      );
+    }
+
+    container.append(tabsNav, contentArea);
+
+    function switchTab(tab) {
+      currentTab = tab;
+      loginTabBtn.classList.toggle('active', tab === 'login');
+      registerTabBtn.classList.toggle('active', tab === 'register');
+      renderTab();
+    }
+
+    function renderTab() {
+      contentArea.replaceChildren();
+      if (currentTab === 'login') {
+        renderLogin();
+      } else {
+        renderRegister();
+      }
+    }
+
+    // SIGN IN FORM
+    function renderLogin() {
+      const alertArea = h('div');
+      const emailInput = h('input', {
+        type: 'email',
+        placeholder: 'student@example.com',
+        autocomplete: 'email',
+        required: true,
+      });
+
+      const pwdInput = h('input', {
+        type: 'password',
+        placeholder: 'Enter your password',
+        autocomplete: 'current-password',
+        required: true,
+      });
+
+      let pwdVisible = false;
+      const toggleBtn = h('button', {
+        type: 'button',
+        class: 'pwd-toggle-btn',
+        title: 'Show password',
+        text: '👁️',
+        onclick: () => {
+          pwdVisible = !pwdVisible;
+          pwdInput.type = pwdVisible ? 'text' : 'password';
+          toggleBtn.title = pwdVisible ? 'Hide password' : 'Show password';
+          toggleBtn.style.opacity = pwdVisible ? '1' : '0.6';
+        }
+      });
+      toggleBtn.style.opacity = '0.6';
+
+      const pwdWrap = h('div', { class: 'pwd-wrap' }, pwdInput, toggleBtn);
+
+      const submitBtn = h('button', {
+        type: 'submit',
+        class: 'btn',
+        style: 'width: 100%; margin-top: 1rem;',
+        text: 'Sign In',
+      });
+
+      const form = h('form', { novalidate: true },
+        h('h2', { id: 'auth-modal-title', style: 'margin: 0 0 0.5rem 0;', text: 'Welcome back' }),
+        h('p', { class: 'muted', style: 'margin: 0 0 1.25rem 0;', text: 'Sign in to access your learning streak, badges, and personalized AI Tutor.' }),
+        alertArea,
+        h('div', { class: 'field' },
+          h('label', { text: 'Email Address' }),
+          emailInput),
+        h('div', { class: 'field' },
+          h('div', { style: 'display: flex; justify-content: space-between; align-items: center;' },
+            h('label', { text: 'Password' }),
+            h('button', {
+              type: 'button',
+              class: 'link-subtle',
+              style: 'font-size: 12px;',
+              text: 'Forgot password?',
+              onclick: () => {
+                window.alert('For password reset support, please reach out to your EduMind learning administrator or teacher.');
+              }
+            })),
+          pwdWrap),
+        submitBtn,
+        h('p', { class: 'muted', style: 'text-align: center; margin-top: 1rem; font-size: 13px;' },
+          "Don't have an account? ",
+          h('button', {
+            type: 'button',
+            class: 'link',
+            text: 'Create an account here',
+            onclick: () => switchTab('register')
+          }))
+      );
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        alertArea.replaceChildren();
+
+        const email = emailInput.value.trim().toLowerCase();
+        const password = pwdInput.value;
+
+        if (!email) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Please enter your email address.' }));
+          emailInput.focus();
+          return;
+        }
+
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailPattern.test(email)) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Please enter a valid email address format.' }));
+          emailInput.focus();
+          return;
+        }
+
+        if (!password) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Please enter your password.' }));
+          pwdInput.focus();
+          return;
+        }
+
+        isSubmitting = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Signing in…';
+
+        try {
+          const res = await request('/api/auth/login', {
+            method: 'POST',
+            body: { email, password }
+          });
+
+          onAuthSuccess(res);
+        } catch (err) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: err.message || 'Invalid email or password.' }));
+        } finally {
+          isSubmitting = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Sign In';
+        }
+      });
+
+      contentArea.append(form);
+    }
+
+    // REGISTRATION FORM
+    function renderRegister() {
+      const alertArea = h('div');
+      const nameInput = h('input', {
+        type: 'text',
+        placeholder: 'e.g. Maya Lin',
+        autocomplete: 'name',
+        required: true,
+      });
+
+      const emailInput = h('input', {
+        type: 'email',
+        placeholder: 'student@example.com',
+        autocomplete: 'email',
+        required: true,
+      });
+
+      const pwdInput = h('input', {
+        type: 'password',
+        placeholder: 'Create a password',
+        autocomplete: 'new-password',
+        required: true,
+      });
+
+      let pwdVisible = false;
+      const toggleBtn = h('button', {
+        type: 'button',
+        class: 'pwd-toggle-btn',
+        title: 'Show password',
+        text: '👁️',
+        onclick: () => {
+          pwdVisible = !pwdVisible;
+          pwdInput.type = pwdVisible ? 'text' : 'password';
+          toggleBtn.title = pwdVisible ? 'Hide password' : 'Show password';
+          toggleBtn.style.opacity = pwdVisible ? '1' : '0.6';
+        }
+      });
+      toggleBtn.style.opacity = '0.6';
+
+      const pwdWrap = h('div', { class: 'pwd-wrap' }, pwdInput, toggleBtn);
+
+      const confirmPwdInput = h('input', {
+        type: 'password',
+        placeholder: 'Confirm your password',
+        autocomplete: 'new-password',
+        required: true,
+      });
+
+      // Password requirements checklist
+      const ruleLen = h('div', { class: 'pwd-rule' }, h('span', { class: 'rule-icon', text: '○' }), h('span', { text: '8+ characters' }));
+      const ruleUpper = h('div', { class: 'pwd-rule' }, h('span', { class: 'rule-icon', text: '○' }), h('span', { text: 'Uppercase (A-Z)' }));
+      const ruleLower = h('div', { class: 'pwd-rule' }, h('span', { class: 'rule-icon', text: '○' }), h('span', { text: 'Lowercase (a-z)' }));
+      const ruleNum = h('div', { class: 'pwd-rule' }, h('span', { class: 'rule-icon', text: '○' }), h('span', { text: 'At least one number (0-9)' }));
+
+      const checklist = h('div', { class: 'pwd-checklist' }, ruleLen, ruleUpper, ruleLower, ruleNum);
+
+      function updateChecklist() {
+        const val = pwdInput.value;
+        const hasLen = val.length >= 8;
+        const hasUpper = /[A-Z]/.test(val);
+        const hasLower = /[a-z]/.test(val);
+        const hasNum = /[0-9]/.test(val);
+
+        ruleLen.className = 'pwd-rule' + (hasLen ? ' valid' : '');
+        ruleLen.firstChild.textContent = hasLen ? '✓' : '○';
+
+        ruleUpper.className = 'pwd-rule' + (hasUpper ? ' valid' : '');
+        ruleUpper.firstChild.textContent = hasUpper ? '✓' : '○';
+
+        ruleLower.className = 'pwd-rule' + (hasLower ? ' valid' : '');
+        ruleLower.firstChild.textContent = hasLower ? '✓' : '○';
+
+        ruleNum.className = 'pwd-rule' + (hasNum ? ' valid' : '');
+        ruleNum.firstChild.textContent = hasNum ? '✓' : '○';
+      }
+
+      pwdInput.addEventListener('input', updateChecklist);
+
+      const submitBtn = h('button', {
+        type: 'submit',
+        class: 'btn',
+        style: 'width: 100%; margin-top: 1rem;',
+        text: 'Create Account & Continue →',
+      });
+
+      const form = h('form', { novalidate: true },
+        h('h2', { id: 'auth-modal-title', style: 'margin: 0 0 0.5rem 0;', text: 'Create your student account' }),
+        h('p', { class: 'muted', style: 'margin: 0 0 1.25rem 0;', text: 'Personalize your AI Tutor, preserve your streaks, and unlock achievement badges.' }),
+        alertArea,
+        h('div', { class: 'field' },
+          h('label', { text: 'Full Name' }),
+          nameInput),
+        h('div', { class: 'field' },
+          h('label', { text: 'Email Address' }),
+          emailInput),
+        h('div', { class: 'field' },
+          h('label', { text: 'Password' }),
+          pwdWrap),
+        checklist,
+        h('div', { class: 'field' },
+          h('label', { text: 'Confirm Password' }),
+          confirmPwdInput),
+        submitBtn,
+        h('p', { class: 'muted', style: 'text-align: center; margin-top: 1rem; font-size: 13px;' },
+          "Already have an account? ",
+          h('button', {
+            type: 'button',
+            class: 'link',
+            text: 'Sign in here',
+            onclick: () => switchTab('login')
+          }))
+      );
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        alertArea.replaceChildren();
+
+        const name = nameInput.value.trim();
+        const email = emailInput.value.trim().toLowerCase();
+        const password = pwdInput.value;
+        const confirm = confirmPwdInput.value;
+
+        if (!name) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Please enter your full name.' }));
+          nameInput.focus();
+          return;
+        }
+
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!email || !emailPattern.test(email)) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Please enter a valid email address.' }));
+          emailInput.focus();
+          return;
+        }
+
+        if (password.length < 8) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Password must be at least 8 characters long.' }));
+          pwdInput.focus();
+          return;
+        }
+
+        if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Password must include uppercase, lowercase, and a number.' }));
+          pwdInput.focus();
+          return;
+        }
+
+        if (password !== confirm) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: 'Passwords do not match. Please re-enter.' }));
+          confirmPwdInput.focus();
+          return;
+        }
+
+        isSubmitting = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating account…';
+
+        try {
+          const res = await request('/api/auth/register', {
+            method: 'POST',
+            body: {
+              email,
+              password,
+              display_name: name,
+              learner_id: learnerId || undefined,
+            }
+          });
+
+          onAuthSuccess(res);
+        } catch (err) {
+          alertArea.replaceChildren(h('div', { class: 'form-alert error', text: err.message || 'Could not create account.' }));
+        } finally {
+          isSubmitting = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Create Account & Continue →';
+        }
+      });
+
+      contentArea.append(form);
+    }
+
+    renderTab();
+    return container;
+  }
+
+  // 1b. FULL LANDING VIEW (When unauthenticated)
+  function showAuthLanding(initialTab = 'login') {
+    document.body.classList.add('not-authenticated');
+    updateNavUser();
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    const hero = h('div', { class: 'landing-auth-hero' },
+      h('div', { class: 'landing-auth-logo-badge', 'aria-hidden': 'true' },
+        svgEl('svg', { width: '32', height: '32', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+          svgEl('path', { d: 'M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z' }),
+          svgEl('path', { d: 'M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z' })
+        )
+      ),
+      h('h1', { text: 'Welcome to EduMind AI' }),
+      h('p', { text: 'Sign in to access your personal dashboard, learning streaks, badges, and AI Tutor.' })
+    );
+
+    const authBox = buildAuthComponent({
+      initialTab,
+      isModal: false,
+      onAuthSuccess: (user) => {
+        setCurrentUser(user);
+        if (!user.onboarding_completed) {
+          showDashboard();
+          showOnboardingModal();
+        } else {
+          showDashboard();
+        }
+      }
+    });
+
+    const card = h('div', { class: 'landing-auth-card' }, authBox);
+    const wrap = h('div', { class: 'landing-auth-wrap' }, hero, card);
+
+    view(wrap);
+  }
+
+  // 1c. AUTH MODAL (If triggered while already on a page)
+  function showAuthModal(initialTab = 'login') {
+    if (!currentUser) {
+      showAuthLanding(initialTab);
+      return;
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    const modalBackdrop = h('div', { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'auth-modal-title' });
+    const modalBox = h('div', { class: 'auth-modal-box' });
+
+    const authBox = buildAuthComponent({
+      initialTab,
+      isModal: true,
+      onClose: () => modalBackdrop.remove(),
+      onAuthSuccess: (user) => {
+        setCurrentUser(user);
+        modalBackdrop.remove();
+        if (!user.onboarding_completed) {
+          showOnboardingModal();
+        } else {
+          showDashboard();
+        }
+      }
+    });
+
+    modalBox.append(authBox);
+    modalBackdrop.append(modalBox);
+    modalBackdrop.addEventListener('click', (e) => {
+      if (e.target === modalBackdrop) modalBackdrop.remove();
+    });
+
+    document.body.append(modalBackdrop);
+  }
+
+  // 2. INTEREST-BASED STUDENT ONBOARDING MODAL
+  function showOnboardingModal(isEditing = false) {
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    const existingPrefs = currentUser?.preferences || {};
+    let selectedInterests = [...(existingPrefs.interests || [])];
+    let selectedStyles = [...(existingPrefs.learning_preferences || [])];
+    let selectedDepth = existingPrefs.preferred_difficulty || 'Intermediate';
+    let selectedGoals = [...(existingPrefs.learning_goals || [])];
+    let personalGoal = existingPrefs.personal_learning_goal || '';
+
+    let currentStep = 1;
+    const totalSteps = 5;
+
+    const modalBackdrop = h('div', { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'onboard-title' });
+    const modalBox = h('div', { class: 'onboarding-modal-box' });
+
+    // Progress bar
+    const stepLabel = h('span', { text: `Step ${currentStep} of ${totalSteps}` });
+    const progressFill = h('div', { class: 'onboarding-progress-bar', style: `width: ${(currentStep / totalSteps) * 100}%;` });
+    const progressTrack = h('div', { class: 'onboarding-progress-track' }, progressFill);
+    const progressWrap = h('div', { class: 'onboarding-progress-wrap' },
+      h('div', { class: 'onboarding-progress-header' },
+        stepLabel,
+        h('span', { text: isEditing ? 'Edit Preferences' : 'Personalize EduMind' })),
+      progressTrack
+    );
+
+    const stepContent = h('div');
+    const alertArea = h('div');
+
+    function updateProgress() {
+      stepLabel.textContent = `Step ${currentStep} of ${totalSteps}`;
+      progressFill.style.width = `${(currentStep / totalSteps) * 100}%`;
+    }
+
+    function renderStep() {
+      stepContent.replaceChildren();
+      updateProgress();
+
+      if (currentStep === 1) renderStep1();
+      else if (currentStep === 2) renderStep2();
+      else if (currentStep === 3) renderStep3();
+      else if (currentStep === 4) renderStep4();
+      else if (currentStep === 5) renderStep5();
+    }
+
+    // STEP 1: TOPICS
+    function renderStep1() {
+      const title = h('h2', { id: 'onboard-title', class: 'onboarding-step-title', text: 'What would you enjoy learning about?' });
+      const desc = h('p', { class: 'onboarding-step-desc', text: 'Select topics that interest you. Your AI Tutor will use them to build fun, relevant examples.' });
+
+      const chipsGrid = h('div', { class: 'onboarding-chips-grid' },
+        TOPIC_OPTIONS.map(opt => {
+          const isSelected = selectedInterests.includes(opt.id);
+          const chip = h('button', {
+            type: 'button',
+            class: 'onboarding-chip' + (isSelected ? ' selected' : ''),
+            onclick: () => {
+              if (selectedInterests.includes(opt.id)) {
+                selectedInterests = selectedInterests.filter(x => x !== opt.id);
+                chip.classList.remove('selected');
+              } else {
+                selectedInterests.push(opt.id);
+                chip.classList.add('selected');
+              }
+            }
+          },
+            h('span', { text: opt.icon }),
+            h('span', { text: opt.label }));
+          return chip;
+        })
+      );
+
+      const navRow = h('div', { class: 'onboarding-nav-row' },
+        h('span', { class: 'muted', style: 'font-size: 13px;', text: 'Select as many as you like' }),
+        h('div', { style: 'display: flex; gap: 8px;' },
+          h('button', {
+            type: 'button',
+            class: 'btn secondary',
+            text: 'Skip',
+            onclick: () => { currentStep++; renderStep(); }
+          }),
+          h('button', {
+            type: 'button',
+            class: 'btn',
+            text: 'Continue →',
+            onclick: () => { currentStep++; renderStep(); }
+          }))
+      );
+
+      stepContent.append(title, desc, chipsGrid, navRow);
+    }
+
+    // STEP 2: LEARNING STYLES
+    function renderStep2() {
+      const title = h('h2', { id: 'onboard-title', class: 'onboarding-step-title', text: 'What helps you understand something new?' });
+      const desc = h('p', { class: 'onboarding-step-desc', text: 'Choose your preferred presentation style for explanations and tutor guidance.' });
+
+      const cardsGrid = h('div', { class: 'onboarding-cards-grid' },
+        STYLE_OPTIONS.map(opt => {
+          const isSelected = selectedStyles.includes(opt.id);
+          const card = h('div', {
+            class: 'onboarding-card' + (isSelected ? ' selected' : ''),
+            onclick: () => {
+              if (selectedStyles.includes(opt.id)) {
+                selectedStyles = selectedStyles.filter(x => x !== opt.id);
+                card.classList.remove('selected');
+              } else {
+                selectedStyles.push(opt.id);
+                card.classList.add('selected');
+              }
+            }
+          },
+            h('span', { class: 'onboarding-card-icon', text: opt.icon }),
+            h('div', { class: 'onboarding-card-text' },
+              h('strong', { text: opt.title }),
+              h('p', { text: opt.desc })));
+          return card;
+        })
+      );
+
+      const navRow = h('div', { class: 'onboarding-nav-row' },
+        h('button', {
+          type: 'button',
+          class: 'btn secondary',
+          text: '← Back',
+          onclick: () => { currentStep--; renderStep(); }
+        }),
+        h('div', { style: 'display: flex; gap: 8px;' },
+          h('button', {
+            type: 'button',
+            class: 'btn secondary',
+            text: 'Skip',
+            onclick: () => { currentStep++; renderStep(); }
+          }),
+          h('button', {
+            type: 'button',
+            class: 'btn',
+            text: 'Continue →',
+            onclick: () => { currentStep++; renderStep(); }
+          }))
+      );
+
+      stepContent.append(title, desc, cardsGrid, navRow);
+    }
+
+    // STEP 3: EXPLANATION LEVEL
+    function renderStep3() {
+      const title = h('h2', { id: 'onboard-title', class: 'onboarding-step-title', text: 'What level of explanation do you prefer?' });
+      const desc = h('p', { class: 'onboarding-step-desc', text: 'Pick a default depth for your AI Tutor. You can adjust this whenever you chat.' });
+
+      const cardsGrid = h('div', { class: 'onboarding-cards-grid' },
+        DEPTH_OPTIONS.map(opt => {
+          const isSelected = selectedDepth === opt.id;
+          const card = h('div', {
+            class: 'onboarding-card' + (isSelected ? ' selected' : ''),
+            onclick: () => {
+              selectedDepth = opt.id;
+              cardsGrid.querySelectorAll('.onboarding-card').forEach(c => c.classList.remove('selected'));
+              card.classList.add('selected');
+            }
+          },
+            h('span', { class: 'onboarding-card-icon', text: opt.icon }),
+            h('div', { class: 'onboarding-card-text' },
+              h('strong', { text: opt.title }),
+              h('p', { text: opt.desc })));
+          return card;
+        })
+      );
+
+      const navRow = h('div', { class: 'onboarding-nav-row' },
+        h('button', {
+          type: 'button',
+          class: 'btn secondary',
+          text: '← Back',
+          onclick: () => { currentStep--; renderStep(); }
+        }),
+        h('button', {
+          type: 'button',
+          class: 'btn',
+          text: 'Continue →',
+          onclick: () => { currentStep++; renderStep(); }
+        })
+      );
+
+      stepContent.append(title, desc, cardsGrid, navRow);
+    }
+
+    // STEP 4: LEARNING GOALS
+    function renderStep4() {
+      const title = h('h2', { id: 'onboard-title', class: 'onboarding-step-title', text: 'What would you like help with most?' });
+      const desc = h('p', { class: 'onboarding-step-desc', text: 'Select any areas you want to concentrate on during practice sessions.' });
+
+      const cardsGrid = h('div', { class: 'onboarding-cards-grid' },
+        GOAL_OPTIONS.map(opt => {
+          const isSelected = selectedGoals.includes(opt.id);
+          const card = h('div', {
+            class: 'onboarding-card' + (isSelected ? ' selected' : ''),
+            onclick: () => {
+              if (selectedGoals.includes(opt.id)) {
+                selectedGoals = selectedGoals.filter(x => x !== opt.id);
+                card.classList.remove('selected');
+              } else {
+                selectedGoals.push(opt.id);
+                card.classList.add('selected');
+              }
+            }
+          },
+            h('span', { class: 'onboarding-card-icon', text: opt.icon }),
+            h('div', { class: 'onboarding-card-text' },
+              h('strong', { text: opt.title }),
+              h('p', { text: opt.desc })));
+          return card;
+        })
+      );
+
+      const navRow = h('div', { class: 'onboarding-nav-row' },
+        h('button', {
+          type: 'button',
+          class: 'btn secondary',
+          text: '← Back',
+          onclick: () => { currentStep--; renderStep(); }
+        }),
+        h('div', { style: 'display: flex; gap: 8px;' },
+          h('button', {
+            type: 'button',
+            class: 'btn secondary',
+            text: 'Skip',
+            onclick: () => { currentStep++; renderStep(); }
+          }),
+          h('button', {
+            type: 'button',
+            class: 'btn',
+            text: 'Continue →',
+            onclick: () => { currentStep++; renderStep(); }
+          }))
+      );
+
+      stepContent.append(title, desc, cardsGrid, navRow);
+    }
+
+    // STEP 5: PERSONAL GOAL (OPTIONAL)
+    function renderStep5() {
+      const title = h('h2', { id: 'onboard-title', class: 'onboarding-step-title', text: 'Is there anything specific you’d like to learn?' });
+      const desc = h('p', { class: 'onboarding-step-desc', text: 'Optional: share a topic, hobby, or curiosity you want to explore with your AI Tutor.' });
+
+      const goalInput = h('input', {
+        type: 'text',
+        maxlength: 120,
+        value: personalGoal,
+        placeholder: 'e.g. I want to understand how rockets work, or how AI models learn',
+      });
+
+      const charCount = h('p', { class: 'muted', style: 'font-size: 12px; margin-top: 4px; text-align: right;' }, `${personalGoal.length}/120 characters`);
+      goalInput.addEventListener('input', () => {
+        personalGoal = goalInput.value;
+        charCount.textContent = `${personalGoal.length}/120 characters`;
+      });
+
+      const fieldWrap = h('div', { class: 'field', style: 'max-width: 100%;' },
+        h('label', { text: 'Personal Curiosity or Goal (Optional)' }),
+        goalInput,
+        charCount
+      );
+
+      const finishBtn = h('button', {
+        type: 'button',
+        class: 'btn',
+        style: 'background: linear-gradient(135deg, #2563eb, #7c3aed); font-weight: 700;',
+        text: isEditing ? 'Save Preferences ✓' : 'Finish Setup & Start Learning 🚀',
+        onclick: savePreferences
+      });
+
+      const navRow = h('div', { class: 'onboarding-nav-row' },
+        h('button', {
+          type: 'button',
+          class: 'btn secondary',
+          text: '← Back',
+          onclick: () => { currentStep--; renderStep(); }
+        }),
+        finishBtn
+      );
+
+      stepContent.append(title, desc, fieldWrap, navRow);
+    }
+
+    async function savePreferences() {
+      alertArea.replaceChildren(h('div', { class: 'form-alert success', text: 'Saving your preferences…' }));
+
+      try {
+        const res = await request('/api/auth/preferences', {
+          method: 'PUT',
+          body: {
+            learner_id: learnerId,
+            interests: selectedInterests,
+            learning_preferences: selectedStyles,
+            preferred_difficulty: selectedDepth,
+            learning_goals: selectedGoals,
+            personal_learning_goal: personalGoal.trim(),
+          }
+        });
+
+        // Update local session
+        if (currentUser) {
+          currentUser.preferences = res.preferences;
+          currentUser.onboarding_completed = true;
+          setCurrentUser(currentUser);
+        }
+
+        modalBackdrop.remove();
+
+        if (isEditing) {
+          showProfilePreferencesModal();
+        } else {
+          showDashboard();
+        }
+      } catch (err) {
+        alertArea.replaceChildren(h('div', { class: 'form-alert error', text: err.message || 'Could not save preferences. Please try again.' }));
+      }
+    }
+
+    modalBox.append(
+      h('button', {
+        type: 'button',
+        class: 'modal-close-btn',
+        title: 'Close',
+        style: 'position: absolute; right: 1.25rem; top: 1.25rem; background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8;',
+        text: '✕',
+        onclick: () => modalBackdrop.remove(),
+      }),
+      progressWrap,
+      alertArea,
+      stepContent
+    );
+
+    modalBackdrop.append(modalBox);
+    renderStep();
+    document.body.append(modalBackdrop);
+  }
+
+  // 3. PROFILE & PREFERENCES MODAL
+  function showProfilePreferencesModal() {
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+
+    const modalBackdrop = h('div', { class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'profile-modal-title' });
+    const modalBox = h('div', { class: 'auth-modal-box', style: 'max-width: 540px;' });
+
+    const prefs = currentUser?.preferences || {};
+    const interests = prefs.interests || [];
+    const styles = prefs.learning_preferences || [];
+
+    const interestsChips = interests.length
+      ? h('div', { class: 'onboarding-chips-grid', style: 'margin-bottom: 0.5rem;' },
+          interests.map(i => {
+            const opt = TOPIC_OPTIONS.find(t => t.id === i);
+            return h('span', { class: 'onboarding-chip selected', style: 'cursor: default;' },
+              h('span', { text: opt?.icon || '⭐' }),
+              h('span', { text: opt?.label || i }));
+          }))
+      : h('p', { class: 'muted', style: 'font-size: 13px;', text: 'No specific topics selected yet.' });
+
+    const stylesText = styles.length
+      ? styles.join(' • ')
+      : 'Default adaptive explanations';
+
+    modalBox.append(
+      h('button', {
+        type: 'button',
+        class: 'modal-close-btn',
+        title: 'Close',
+        style: 'position: absolute; right: 1.25rem; top: 1.25rem; background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #94a3b8;',
+        text: '✕',
+        onclick: () => modalBackdrop.remove(),
+      }),
+      h('h2', { id: 'profile-modal-title', text: 'My Profile & Preferences' }),
+      h('div', { style: 'background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; margin-bottom: 1.25rem;' },
+        h('div', { style: 'font-weight: 700; font-size: 16px; color: #1e293b;' }, currentUser.display_name),
+        h('div', { style: 'font-size: 13px; color: #64748b;' }, currentUser.email || 'Anonymous Student'),
+        h('div', { style: 'font-size: 11px; color: #94a3b8; font-family: monospace; margin-top: 4px;' }, `ID: ${learnerId}`)),
+
+      h('h3', { style: 'font-size: 14px; margin: 0 0 8px 0; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;' }, 'Learning Topics of Interest'),
+      interestsChips,
+
+      h('div', { style: 'margin: 1rem 0; font-size: 13px; color: #475569;' },
+        h('strong', { text: 'Preferred Depth: ' }),
+        h('span', { text: prefs.preferred_difficulty || 'Intermediate' }),
+        h('br'),
+        h('strong', { text: 'Learning Styles: ' }),
+        h('span', { text: stylesText }),
+        prefs.personal_learning_goal ? h('div', { style: 'margin-top: 6px;' },
+          h('strong', { text: 'Curiosity Goal: ' }),
+          h('span', { text: `"${prefs.personal_learning_goal}"` })) : null),
+
+      h('div', { class: 'actions', style: 'margin-top: 1.5rem; justify-content: space-between;' },
+        h('button', {
+          type: 'button',
+          class: 'btn',
+          text: 'Edit Preferences ✏️',
+          onclick: () => {
+            modalBackdrop.remove();
+            showOnboardingModal(true);
+          }
+        }),
+        h('button', {
+          type: 'button',
+          class: 'btn secondary',
+          text: 'Sign Out',
+          onclick: () => {
+            if (window.confirm('Sign out of your account on this device?')) {
+              modalBackdrop.remove();
+              setCurrentUser(null);
+              showAuthLanding('login');
+            }
+          }
+        })),
+
+      h('div', { style: 'margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #f1f5f9; text-align: center;' },
+        h('button', {
+          type: 'button',
+          class: 'link-subtle danger',
+          style: 'font-size: 12px;',
+          text: 'Delete my account and learning data',
+          onclick: deleteData
+        }))
+    );
 
     modalBackdrop.append(modalBox);
     modalBackdrop.addEventListener('click', (e) => {
@@ -1628,10 +2594,10 @@
   // DELETE DATA (Privacy Guarantee)
   async function deleteData() {
     if (!learnerId) {
-      showDashboard();
+      showAuthLanding('login');
       return;
     }
-    if (!window.confirm('Are you sure you want to delete all of your practice progress and answers? This action cannot be undone.')) {
+    if (!window.confirm('Are you sure you want to delete your account and all learning data? This action cannot be undone.')) {
       return;
     }
     try {
@@ -1639,17 +2605,15 @@
     } catch (e) {
       if (e.status !== 404) return failure(e);
     }
-    store.del(ID_KEY);
-    learnerId = null;
+    setCurrentUser(null);
 
-    // Remove any open modals
     document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
 
     view(h('div', { class: 'card success', role: 'status' },
-      h('h2', { text: 'Your data has been erased' }),
-      h('p', { text: 'All your answers, progress records, and anonymous session IDs have been permanently erased.' }),
+      h('h2', { text: 'Your account and data have been erased' }),
+      h('p', { text: 'All your answers, progress records, profile, and personal session data have been permanently erased from SQLite.' }),
       h('div', { class: 'actions' },
-        h('button', { class: 'btn', type: 'button', onclick: showDashboard, text: 'Start a fresh session' }))));
+        h('button', { class: 'btn', type: 'button', onclick: () => showAuthLanding('register'), text: 'Create a new account' }))));
   }
 
   // ---------------------------------------------------- AI TUTOR CHATBOT WIDGET
@@ -1830,13 +2794,28 @@
 
       // Quick starter prompts if chat is newly opened
       if (messages.length === 1 && !isLoading) {
-        const starterPrompts = [
+        const interests = currentUser?.preferences?.interests || [];
+        const starterPrompts = [];
+        if (interests.includes('Space and Astronomy')) starterPrompts.push('🚀 How do rockets use ratios and fractions?');
+        if (interests.includes('Artificial Intelligence and Robotics')) starterPrompts.push('🤖 How do AI models learn math?');
+        if (interests.includes('Science and Experiments')) starterPrompts.push('🔬 How are fractions used in chemistry labs?');
+        if (interests.includes('Sports and Games')) starterPrompts.push('⚽ How do sports statistics use fractions?');
+        if (interests.includes('Technology and Computers')) starterPrompts.push('💻 How do computers represent fractions?');
+        if (interests.includes('Business and Money')) starterPrompts.push('💼 How do discounts and interest work?');
+
+        const defaults = [
           "Teach me something new.",
           "What is relational algebra?",
           "How do black holes bend space and time?",
           "Show me a real-world analogy.",
           "Explore a topic beyond my syllabus.",
         ];
+        defaults.forEach(d => {
+          if (starterPrompts.length < 5 && !starterPrompts.includes(d)) {
+            starterPrompts.push(d);
+          }
+        });
+
         const startersRow = h('div', { class: 'tutor-chips-bar', style: 'padding: 4px 0 8px; border: none; background: transparent;' },
           starterPrompts.map(sp => h('button', {
             type: 'button',
@@ -1912,6 +2891,7 @@
             difficulty,
             mode,
             history: historyForApi,
+            learner_id: learnerId,
           }
         });
 
@@ -1935,16 +2915,33 @@
   document.getElementById('nav-practice')?.addEventListener('click', () => startPractice(null));
   document.getElementById('nav-quiz')?.addEventListener('click', () => startQuiz(null));
   document.getElementById('nav-progress')?.addEventListener('click', showProgress);
-  document.getElementById('nav-profile')?.addEventListener('click', showProfileModal);
-  document.getElementById('footer-session-btn')?.addEventListener('click', showProfileModal);
+  document.getElementById('nav-profile')?.addEventListener('click', onProfileNavClick);
+  document.getElementById('footer-session-btn')?.addEventListener('click', onProfileNavClick);
   document.getElementById('delete-data')?.addEventListener('click', deleteData);
 
-  // Logo click returns to Dashboard
-  document.querySelector('.brand')?.addEventListener('click', showDashboard);
+  // Logo click returns to Dashboard if authenticated, else Auth Landing
+  document.querySelector('.brand')?.addEventListener('click', () => {
+    if (currentUser) {
+      showDashboard();
+    } else {
+      showAuthLanding('login');
+    }
+  });
 
   // Initialize AI Tutor floating assistant
   initAITutorWidget();
 
-  // Initial load
-  showDashboard();
+  // Initial load & user header update
+  updateNavUser();
+  if (currentUser) {
+    document.body.classList.remove('not-authenticated');
+    showDashboard();
+    if (!currentUser.onboarding_completed) {
+      showOnboardingModal();
+    }
+  } else {
+    document.body.classList.add('not-authenticated');
+    showAuthLanding('login');
+  }
 })();
+

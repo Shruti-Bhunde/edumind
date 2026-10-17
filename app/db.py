@@ -110,6 +110,23 @@ CREATE TABLE IF NOT EXISTS daily_quests (
     reward_badge_id TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_quests_learner_date ON daily_quests(learner_id, date);
+CREATE TABLE IF NOT EXISTS user_profiles (
+    learner_id TEXT PRIMARY KEY,
+    email TEXT UNIQUE,
+    password_hash TEXT,
+    password_salt TEXT,
+    display_name TEXT NOT NULL,
+    interests TEXT NOT NULL DEFAULT '[]',
+    learning_preferences TEXT NOT NULL DEFAULT '[]',
+    preferred_difficulty TEXT NOT NULL DEFAULT 'Intermediate',
+    learning_goals TEXT NOT NULL DEFAULT '[]',
+    personal_learning_goal TEXT DEFAULT '',
+    onboarding_completed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    profile_updated_at TEXT NOT NULL,
+    FOREIGN KEY (learner_id) REFERENCES learners(id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 """
 
 

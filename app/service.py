@@ -1,8 +1,11 @@
 """Application logic: the full TRACE learning loop on top of the database."""
 from __future__ import annotations
 
+import hashlib
 import json
 import random
+import re
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -20,9 +23,48 @@ CONFIDENCE_NOTE = ("A rule-based indicator of how consistent your answers were w
                    "It is not a calibrated probability, and it can be wrong.")
 LEVEL_RANK = {"Not started": 0, "Practising": 1, "Getting there": 2, "Secure": 3}
 
+EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+
+
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    pw_hash = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000).hex()
+    return pw_hash, salt
+
+
+def verify_password(password: str, pw_hash: str, salt: str) -> bool:
+    computed, _ = hash_password(password, salt)
+    return secrets.compare_digest(computed, pw_hash)
+
+
+def validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise BadRequest("Password must be at least 8 characters long.")
+    if not re.search(r"[A-Z]", password):
+        raise BadRequest("Password must contain at least one uppercase letter.")
+    if not re.search(r"[a-z]", password):
+        raise BadRequest("Password must contain at least one lowercase letter.")
+    if not re.search(r"[0-9]", password):
+        raise BadRequest("Password must contain at least one number.")
+
+
+def validate_email_address(email: str) -> str:
+    cleaned = (email or "").strip().lower()
+    if not cleaned:
+        raise BadRequest("Email address is required.")
+    if len(cleaned) > 255 or not EMAIL_REGEX.match(cleaned) or ".." in cleaned or cleaned.startswith(".") or cleaned.endswith("."):
+        raise BadRequest("Please enter a valid email address.")
+    return cleaned
+
 
 class ServiceError(Exception):
     status = 400
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        if status is not None:
+            self.status = status
 
 
 class NotFound(ServiceError):
@@ -35,6 +77,10 @@ class Conflict(ServiceError):
 
 class BadRequest(ServiceError):
     status = 400
+
+
+class Unauthorized(ServiceError):
+    status = 401
 
 
 def level_from_recent(recent: list[int]) -> str:
@@ -101,7 +147,7 @@ class EduMindService:
             for table in (
                 "mastery_checks", "diagnostic_sessions", "attempts", "review_queue",
                 "gamification_summaries", "activity_dates", "earned_badges",
-                "quiz_completions", "daily_quests"
+                "quiz_completions", "daily_quests", "user_profiles"
             ):
                 self.db.execute(f"DELETE FROM {table} WHERE learner_id=?", (learner_id,))
             self.db.execute("DELETE FROM learners WHERE id=?", (learner_id,))
@@ -559,12 +605,213 @@ class EduMindService:
 
     # ------------------------------------------------------------------ tutor
     def tutor_chat(self, message: str, difficulty: str = "Intermediate",
-                   mode: str | None = None, history: list[dict] | None = None) -> dict:
+                   mode: str | None = None, history: list[dict] | None = None,
+                   learner_id: str | None = None) -> dict:
         if not self.gemini or not self.gemini.is_available():
             raise ServiceError("EduMind AI Tutor requires GEMINI_API_KEY to be configured on the server.")
         try:
-            reply = self.gemini.tutor_chat(message=message, difficulty=difficulty, mode=mode, history=history)
+            preferences = None
+            if learner_id:
+                profile = self.get_user_profile(learner_id)
+                preferences = profile.get("preferences")
+                if preferences:
+                    pref_diff = preferences.get("preferred_difficulty")
+                    if pref_diff and pref_diff != "Adapt to me" and difficulty == "Intermediate":
+                        difficulty = pref_diff
+
+            reply = self.gemini.tutor_chat(
+                message=message,
+                difficulty=difficulty,
+                mode=mode,
+                history=history,
+                preferences=preferences,
+            )
             return {"reply": reply, "difficulty": difficulty, "mode": mode or "chat"}
         except RuntimeError as e:
             raise ServiceError(str(e))
+
+    # ------------------------------------------------------------------ auth & profiles
+    def register_user(self, email: str, password: str, display_name: str,
+                      learner_id: str | None = None) -> dict:
+        clean_email = validate_email_address(email)
+        clean_name = (display_name or "").strip()
+        if not clean_name:
+            raise BadRequest("Full name is required.")
+        if len(clean_name) > 60:
+            clean_name = clean_name[:60]
+        validate_password_strength(password)
+
+        existing = self.db.one("SELECT learner_id FROM user_profiles WHERE email = ?", (clean_email,))
+        if existing:
+            raise Conflict("An account with this email address already exists. Please log in instead.")
+
+        target_learner_id = None
+        if learner_id:
+            profile = self.db.one("SELECT email FROM user_profiles WHERE learner_id = ?", (learner_id,))
+            if not profile or not profile["email"]:
+                if not self.db.one("SELECT id FROM learners WHERE id = ?", (learner_id,)):
+                    self.db.execute("INSERT INTO learners (id, created_at) VALUES (?, ?)", (learner_id, self._iso()))
+                target_learner_id = learner_id
+
+        if not target_learner_id:
+            target_learner_id = self.create_learner()
+
+        pw_hash, pw_salt = hash_password(password)
+        now = self._iso()
+
+        with self.db.transaction():
+            existing_row = self.db.one("SELECT learner_id FROM user_profiles WHERE learner_id = ?", (target_learner_id,))
+            if existing_row:
+                self.db.execute(
+                    """UPDATE user_profiles SET
+                       email = ?, password_hash = ?, password_salt = ?, display_name = ?,
+                       profile_updated_at = ?
+                       WHERE learner_id = ?""",
+                    (clean_email, pw_hash, pw_salt, clean_name, now, target_learner_id)
+                )
+            else:
+                self.db.execute(
+                    """INSERT INTO user_profiles
+                       (learner_id, email, password_hash, password_salt, display_name,
+                        interests, learning_preferences, preferred_difficulty, learning_goals,
+                        personal_learning_goal, onboarding_completed, created_at, profile_updated_at)
+                       VALUES (?, ?, ?, ?, ?, '[]', '[]', 'Intermediate', '[]', '', 0, ?, ?)""",
+                    (target_learner_id, clean_email, pw_hash, pw_salt, clean_name, now, now)
+                )
+
+        return {
+            "learner_id": target_learner_id,
+            "email": clean_email,
+            "display_name": clean_name,
+            "onboarding_completed": False,
+        }
+
+    def authenticate_user(self, email: str, password: str) -> dict:
+        clean_email = (email or "").strip().lower()
+        if not clean_email or not password:
+            raise BadRequest("Email and password are required.")
+
+        row = self.db.one("SELECT * FROM user_profiles WHERE email = ?", (clean_email,))
+        if not row or not row["password_hash"] or not row["password_salt"]:
+            raise ServiceError("Invalid email or password. Please check your credentials.", status=401)
+
+        if not verify_password(password, row["password_hash"], row["password_salt"]):
+            raise ServiceError("Invalid email or password. Please check your credentials.", status=401)
+
+        interests = json.loads(row["interests"]) if row["interests"] else []
+        learning_preferences = json.loads(row["learning_preferences"]) if row["learning_preferences"] else []
+        learning_goals = json.loads(row["learning_goals"]) if row["learning_goals"] else []
+
+        return {
+            "learner_id": row["learner_id"],
+            "email": row["email"],
+            "display_name": row["display_name"],
+            "onboarding_completed": bool(row["onboarding_completed"]),
+            "preferences": {
+                "interests": interests,
+                "learning_preferences": learning_preferences,
+                "preferred_difficulty": row["preferred_difficulty"] or "Intermediate",
+                "learning_goals": learning_goals,
+                "personal_learning_goal": row["personal_learning_goal"] or "",
+            }
+        }
+
+    def get_user_profile(self, learner_id: str) -> dict:
+        self._require_learner(learner_id)
+        row = self.db.one("SELECT * FROM user_profiles WHERE learner_id = ?", (learner_id,))
+        if not row:
+            return {
+                "learner_id": learner_id,
+                "email": None,
+                "display_name": "Learner",
+                "onboarding_completed": False,
+                "preferences": {
+                    "interests": [],
+                    "learning_preferences": [],
+                    "preferred_difficulty": "Intermediate",
+                    "learning_goals": [],
+                    "personal_learning_goal": "",
+                }
+            }
+
+        interests = json.loads(row["interests"]) if row["interests"] else []
+        learning_preferences = json.loads(row["learning_preferences"]) if row["learning_preferences"] else []
+        learning_goals = json.loads(row["learning_goals"]) if row["learning_goals"] else []
+
+        return {
+            "learner_id": row["learner_id"],
+            "email": row["email"],
+            "display_name": row["display_name"],
+            "onboarding_completed": bool(row["onboarding_completed"]),
+            "preferences": {
+                "interests": interests,
+                "learning_preferences": learning_preferences,
+                "preferred_difficulty": row["preferred_difficulty"] or "Intermediate",
+                "learning_goals": learning_goals,
+                "personal_learning_goal": row["personal_learning_goal"] or "",
+            }
+        }
+
+    def update_user_preferences(
+        self,
+        learner_id: str,
+        interests: list[str],
+        learning_preferences: list[str],
+        preferred_difficulty: str = "Intermediate",
+        learning_goals: list[str] | None = None,
+        personal_learning_goal: str | None = None,
+        onboarding_completed: bool = True,
+    ) -> dict:
+        self._require_learner(learner_id)
+        clean_interests = [str(x).strip()[:50] for x in interests if str(x).strip()][:25]
+        clean_styles = [str(x).strip()[:60] for x in learning_preferences if str(x).strip()][:15]
+        clean_goals = [str(x).strip()[:60] for x in (learning_goals or []) if str(x).strip()][:15]
+        clean_personal_goal = str(personal_learning_goal or "").strip()[:120]
+
+        diff = (preferred_difficulty or "Intermediate").strip().capitalize()
+        if diff not in {"Beginner", "Intermediate", "Advanced", "Adapt to me"}:
+            diff = "Intermediate"
+
+        now = self._iso()
+        with self.db.transaction():
+            row = self.db.one("SELECT learner_id FROM user_profiles WHERE learner_id = ?", (learner_id,))
+            if row:
+                self.db.execute(
+                    """UPDATE user_profiles SET
+                       interests = ?, learning_preferences = ?, preferred_difficulty = ?,
+                       learning_goals = ?, personal_learning_goal = ?, onboarding_completed = ?,
+                       profile_updated_at = ?
+                       WHERE learner_id = ?""",
+                    (
+                        json.dumps(clean_interests),
+                        json.dumps(clean_styles),
+                        diff,
+                        json.dumps(clean_goals),
+                        clean_personal_goal,
+                        1 if onboarding_completed else 0,
+                        now,
+                        learner_id,
+                    )
+                )
+            else:
+                self.db.execute(
+                    """INSERT INTO user_profiles
+                       (learner_id, email, password_hash, password_salt, display_name,
+                        interests, learning_preferences, preferred_difficulty, learning_goals,
+                        personal_learning_goal, onboarding_completed, created_at, profile_updated_at)
+                       VALUES (?, NULL, NULL, NULL, 'Learner', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        learner_id,
+                        json.dumps(clean_interests),
+                        json.dumps(clean_styles),
+                        diff,
+                        json.dumps(clean_goals),
+                        clean_personal_goal,
+                        1 if onboarding_completed else 0,
+                        now,
+                        now,
+                    )
+                )
+
+        return self.get_user_profile(learner_id)
 

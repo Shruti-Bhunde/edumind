@@ -221,6 +221,7 @@ class GeminiService:
         difficulty: str = "Intermediate",
         mode: str | None = None,
         history: list[dict[str, str]] | None = None,
+        preferences: dict | None = None,
     ) -> str:
         """Generates a conversational educational response for EduMind AI Tutor.
 
@@ -228,6 +229,7 @@ class GeminiService:
         - Age-appropriate language based on selected difficulty.
         - Direct answers without appending unsolicited follow-up questions.
         - Support for concepts inside or outside the current fraction syllabus.
+        - Personalization based on student interests and preferred learning styles.
         """
         if not self.is_available():
             raise RuntimeError(
@@ -245,10 +247,43 @@ class GeminiService:
         elif mode == "hints":
             mode_instruction = " Provide 3 tiered progressive hints (from subtle guidance to explicit method)."
 
+        # Interest-based personalization guidance
+        personalization_instruction = ""
+        if preferences:
+            interests = preferences.get("interests", [])
+            learning_styles = preferences.get("learning_preferences", [])
+            learning_goals = preferences.get("learning_goals", [])
+            personal_goal = (preferences.get("personal_learning_goal") or "").strip()
+
+            parts = []
+            if interests:
+                parts.append(f"- Student Interests: {', '.join(interests)}")
+            if learning_styles:
+                parts.append(f"- Preferred Learning Styles: {', '.join(learning_styles)}")
+            if learning_goals:
+                parts.append(f"- Learning Goals: {', '.join(learning_goals)}")
+            if personal_goal:
+                safe_goal = personal_goal[:120].replace("\n", " ").replace("\r", " ")
+                parts.append(f"- Personal Learning Goal: {safe_goal}")
+
+            if parts:
+                interest_hint = f" (e.g. {', '.join(interests)})" if interests else ""
+                personalization_instruction = (
+                    "\nSTUDENT LEARNING PREFERENCES & PERSONALIZATION GUIDANCE:\n"
+                    + "\n".join(parts) + "\n"
+                    "PERSONALIZATION RULES:\n"
+                    f"1. When illustrative and relevant, naturally incorporate examples, contexts, or analogies connected to the student's interests{interest_hint}.\n"
+                    "2. Do NOT force an analogy if it doesn't fit naturally or distracts from clarity.\n"
+                    "3. Respect their preferred learning styles by structuring explanations accordingly.\n"
+                    "4. Always prioritize mathematical and factual correctness, and directly answer the student's question.\n"
+                    "5. The student is free to explore any topic inside or outside their stated interests.\n"
+                )
+
         system_instruction = (
             f"{TUTOR_SYSTEM_INSTRUCTION}\n"
             f"The learner has selected {difficulty} difficulty level. Adapt vocabulary and depth accordingly."
             f"{mode_instruction}\n"
+            f"{personalization_instruction}"
             f"IMPORTANT: Answer the question directly and finish naturally. DO NOT append questions or quizzes at the end."
         )
 

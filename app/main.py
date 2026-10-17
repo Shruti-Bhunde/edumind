@@ -67,9 +67,31 @@ class TutorChatMessage(BaseModel):
 
 class TutorChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
-    difficulty: str = Field(default="Intermediate", pattern=r"^(?i:beginner|intermediate|advanced)$")
+    difficulty: str = Field(default="Intermediate", pattern=r"^(?i:beginner|intermediate|advanced|adapt to me)$")
     mode: str | None = Field(default=None, max_length=50)
     history: list[TutorChatMessage] = Field(default_factory=list, max_length=20)
+    learner_id: str | None = Field(default=None, pattern=ID)
+
+
+class UserRegisterIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(min_length=1, max_length=60)
+    learner_id: str | None = Field(default=None, pattern=ID)
+
+
+class UserLoginIn(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class UserPreferencesIn(BaseModel):
+    learner_id: str = Field(pattern=ID)
+    interests: list[str] = Field(default_factory=list, max_length=30)
+    learning_preferences: list[str] = Field(default_factory=list, max_length=20)
+    preferred_difficulty: str = Field(default="Intermediate", max_length=30)
+    learning_goals: list[str] = Field(default_factory=list, max_length=20)
+    personal_learning_goal: str | None = Field(default=None, max_length=120)
 
 
 def create_app(db_path: str | None = None, rate_limit_per_minute: int | None = None,
@@ -224,6 +246,37 @@ def create_app(db_path: str | None = None, rate_limit_per_minute: int | None = N
             difficulty=body.difficulty.capitalize(),
             mode=body.mode,
             history=[m.model_dump() for m in body.history],
+            learner_id=body.learner_id,
+        )
+
+    # ---- Auth & Preferences --------------------------------------------------
+    @app.post("/api/auth/register", status_code=201)
+    def register(body: UserRegisterIn):
+        return service.register_user(
+            email=body.email,
+            password=body.password,
+            display_name=body.display_name,
+            learner_id=body.learner_id,
+        )
+
+    @app.post("/api/auth/login")
+    def login(body: UserLoginIn):
+        return service.authenticate_user(email=body.email, password=body.password)
+
+    @app.get("/api/auth/profile")
+    def get_profile(learner_id: str = Query(pattern=ID)):
+        return service.get_user_profile(learner_id)
+
+    @app.put("/api/auth/preferences")
+    def update_preferences(body: UserPreferencesIn):
+        return service.update_user_preferences(
+            learner_id=body.learner_id,
+            interests=body.interests,
+            learning_preferences=body.learning_preferences,
+            preferred_difficulty=body.preferred_difficulty,
+            learning_goals=body.learning_goals,
+            personal_learning_goal=body.personal_learning_goal,
+            onboarding_completed=True,
         )
 
     if FRONTEND_DIR.exists():
