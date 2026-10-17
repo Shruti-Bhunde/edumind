@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.5
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+joblib>=1.3
+google-genai>=1.0
+python-dotenv>=1.0
+# tests
+pytest>=8
+httpx>=0.27
+# optional: real-browser end-to-end check (then: playwright install chromium)
+# playwright>=1.45
