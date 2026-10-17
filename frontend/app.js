@@ -74,9 +74,12 @@
   }
 
   // SVG helper
-  function svgEl(tag, attrs = {}) {
+  function svgEl(tag, attrs = {}, ...kids) {
     const el = document.createElementNS(SVG_NS, tag);
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+    for (const kid of kids.flat()) {
+      if (kid) el.append(kid);
+    }
     return el;
   }
 
@@ -1724,6 +1727,49 @@
     }
   }
 
+  // ---------------------------------------------------- AUTH & BRANDING HELPERS
+  function renderEduMindLogo(size = 32) {
+    const badge = h('div', { class: 'landing-auth-logo-badge', 'aria-label': 'EduMind AI Logo' });
+    badge.innerHTML = `
+      <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    `;
+    return badge;
+  }
+
+  function createPasswordField(placeholder, autocomplete = 'current-password') {
+    const pwdInput = h('input', {
+      type: 'password',
+      placeholder,
+      autocomplete,
+      required: true,
+    });
+
+    let pwdVisible = false;
+    const eyeOpenSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const eyeSlashSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+    const toggleBtn = h('button', {
+      type: 'button',
+      class: 'pwd-toggle-btn',
+      title: 'Show password',
+      'aria-label': 'Show password',
+      onclick: () => {
+        pwdVisible = !pwdVisible;
+        pwdInput.type = pwdVisible ? 'text' : 'password';
+        toggleBtn.title = pwdVisible ? 'Hide password' : 'Show password';
+        toggleBtn.setAttribute('aria-label', pwdVisible ? 'Hide password' : 'Show password');
+        toggleBtn.innerHTML = pwdVisible ? eyeSlashSvg : eyeOpenSvg;
+      }
+    });
+    toggleBtn.innerHTML = eyeOpenSvg;
+
+    const wrap = h('div', { class: 'pwd-wrap' }, pwdInput, toggleBtn);
+    return { input: pwdInput, wrap, toggleBtn };
+  }
+
   // 1. REUSABLE AUTH COMPONENT (Login & Registration)
   function buildAuthComponent({ initialTab = 'login', onAuthSuccess, isModal = false, onClose = null }) {
     const container = h('div', { class: 'auth-component-wrap' });
@@ -1733,6 +1779,8 @@
 
     const loginTabBtn = h('button', {
       type: 'button',
+      role: 'tab',
+      'aria-selected': currentTab === 'login' ? 'true' : 'false',
       class: 'auth-tab-btn' + (currentTab === 'login' ? ' active' : ''),
       text: 'Sign In',
       onclick: () => switchTab('login'),
@@ -1740,13 +1788,15 @@
 
     const registerTabBtn = h('button', {
       type: 'button',
+      role: 'tab',
+      'aria-selected': currentTab === 'register' ? 'true' : 'false',
       class: 'auth-tab-btn' + (currentTab === 'register' ? ' active' : ''),
       text: 'Create Account',
       onclick: () => switchTab('register'),
     });
 
-    const tabsNav = h('div', { class: 'auth-tabs' }, loginTabBtn, registerTabBtn);
-    const contentArea = h('div');
+    const tabsNav = h('div', { class: 'auth-tabs-segmented', role: 'tablist', 'aria-label': 'Authentication Options' }, loginTabBtn, registerTabBtn);
+    const contentArea = h('div', { class: 'auth-content-area' });
 
     if (isModal && typeof onClose === 'function') {
       container.append(
@@ -1766,7 +1816,9 @@
     function switchTab(tab) {
       currentTab = tab;
       loginTabBtn.classList.toggle('active', tab === 'login');
+      loginTabBtn.setAttribute('aria-selected', tab === 'login' ? 'true' : 'false');
       registerTabBtn.classList.toggle('active', tab === 'register');
+      registerTabBtn.setAttribute('aria-selected', tab === 'register' ? 'true' : 'false');
       renderTab();
     }
 
@@ -1789,40 +1841,26 @@
         required: true,
       });
 
-      const pwdInput = h('input', {
-        type: 'password',
-        placeholder: 'Enter your password',
-        autocomplete: 'current-password',
-        required: true,
-      });
-
-      let pwdVisible = false;
-      const toggleBtn = h('button', {
-        type: 'button',
-        class: 'pwd-toggle-btn',
-        title: 'Show password',
-        text: '👁️',
-        onclick: () => {
-          pwdVisible = !pwdVisible;
-          pwdInput.type = pwdVisible ? 'text' : 'password';
-          toggleBtn.title = pwdVisible ? 'Hide password' : 'Show password';
-          toggleBtn.style.opacity = pwdVisible ? '1' : '0.6';
-        }
-      });
-      toggleBtn.style.opacity = '0.6';
-
-      const pwdWrap = h('div', { class: 'pwd-wrap' }, pwdInput, toggleBtn);
+      const { input: pwdInput, wrap: pwdWrap } = createPasswordField('Enter your password', 'current-password');
 
       const submitBtn = h('button', {
         type: 'submit',
-        class: 'btn',
-        style: 'width: 100%; margin-top: 1rem;',
-        text: 'Sign In',
+        class: 'btn-submit-auth',
+        text: 'Sign In →',
       });
 
-      const form = h('form', { novalidate: true },
-        h('h2', { id: 'auth-modal-title', style: 'margin: 0 0 0.5rem 0;', text: 'Welcome back' }),
-        h('p', { class: 'muted', style: 'margin: 0 0 1.25rem 0;', text: 'Sign in to access your learning streak, badges, and personalized AI Tutor.' }),
+      const forgotBtn = h('button', {
+        type: 'button',
+        class: 'forgot-pwd-btn',
+        text: 'Forgot password?',
+        onclick: () => {
+          window.alert('For password reset support, please reach out to your EduMind learning administrator or teacher.');
+        }
+      });
+
+      const form = h('form', { class: 'auth-form-view', novalidate: true },
+        h('h2', { id: 'auth-modal-title', class: 'auth-form-title', text: 'Welcome back' }),
+        h('p', { class: 'auth-form-subtitle', text: 'Sign in to access your learning streak, badges, and personalized AI Tutor.' }),
         alertArea,
         h('div', { class: 'field' },
           h('label', { text: 'Email Address' }),
@@ -1830,22 +1868,14 @@
         h('div', { class: 'field' },
           h('div', { style: 'display: flex; justify-content: space-between; align-items: center;' },
             h('label', { text: 'Password' }),
-            h('button', {
-              type: 'button',
-              class: 'link-subtle',
-              style: 'font-size: 12px;',
-              text: 'Forgot password?',
-              onclick: () => {
-                window.alert('For password reset support, please reach out to your EduMind learning administrator or teacher.');
-              }
-            })),
+            forgotBtn),
           pwdWrap),
         submitBtn,
-        h('p', { class: 'muted', style: 'text-align: center; margin-top: 1rem; font-size: 13px;' },
+        h('p', { class: 'auth-switch-prompt' },
           "Don't have an account? ",
           h('button', {
             type: 'button',
-            class: 'link',
+            class: 'auth-switch-btn',
             text: 'Create an account here',
             onclick: () => switchTab('register')
           }))
@@ -1893,7 +1923,7 @@
         } finally {
           isSubmitting = false;
           submitBtn.disabled = false;
-          submitBtn.textContent = 'Sign In';
+          submitBtn.textContent = 'Sign In →';
         }
       });
 
@@ -1917,36 +1947,8 @@
         required: true,
       });
 
-      const pwdInput = h('input', {
-        type: 'password',
-        placeholder: 'Create a password',
-        autocomplete: 'new-password',
-        required: true,
-      });
-
-      let pwdVisible = false;
-      const toggleBtn = h('button', {
-        type: 'button',
-        class: 'pwd-toggle-btn',
-        title: 'Show password',
-        text: '👁️',
-        onclick: () => {
-          pwdVisible = !pwdVisible;
-          pwdInput.type = pwdVisible ? 'text' : 'password';
-          toggleBtn.title = pwdVisible ? 'Hide password' : 'Show password';
-          toggleBtn.style.opacity = pwdVisible ? '1' : '0.6';
-        }
-      });
-      toggleBtn.style.opacity = '0.6';
-
-      const pwdWrap = h('div', { class: 'pwd-wrap' }, pwdInput, toggleBtn);
-
-      const confirmPwdInput = h('input', {
-        type: 'password',
-        placeholder: 'Confirm your password',
-        autocomplete: 'new-password',
-        required: true,
-      });
+      const { input: pwdInput, wrap: pwdWrap } = createPasswordField('Create a strong password', 'new-password');
+      const { input: confirmPwdInput, wrap: confirmPwdWrap } = createPasswordField('Confirm your password', 'new-password');
 
       // Password requirements checklist
       const ruleLen = h('div', { class: 'pwd-rule' }, h('span', { class: 'rule-icon', text: '○' }), h('span', { text: '8+ characters' }));
@@ -1964,30 +1966,29 @@
         const hasNum = /[0-9]/.test(val);
 
         ruleLen.className = 'pwd-rule' + (hasLen ? ' valid' : '');
-        ruleLen.firstChild.textContent = hasLen ? '✓' : '○';
+        ruleLen.querySelector('.rule-icon').textContent = hasLen ? '✓' : '○';
 
         ruleUpper.className = 'pwd-rule' + (hasUpper ? ' valid' : '');
-        ruleUpper.firstChild.textContent = hasUpper ? '✓' : '○';
+        ruleUpper.querySelector('.rule-icon').textContent = hasUpper ? '✓' : '○';
 
         ruleLower.className = 'pwd-rule' + (hasLower ? ' valid' : '');
-        ruleLower.firstChild.textContent = hasLower ? '✓' : '○';
+        ruleLower.querySelector('.rule-icon').textContent = hasLower ? '✓' : '○';
 
         ruleNum.className = 'pwd-rule' + (hasNum ? ' valid' : '');
-        ruleNum.firstChild.textContent = hasNum ? '✓' : '○';
+        ruleNum.querySelector('.rule-icon').textContent = hasNum ? '✓' : '○';
       }
 
       pwdInput.addEventListener('input', updateChecklist);
 
       const submitBtn = h('button', {
         type: 'submit',
-        class: 'btn',
-        style: 'width: 100%; margin-top: 1rem;',
+        class: 'btn-submit-auth',
         text: 'Create Account & Continue →',
       });
 
-      const form = h('form', { novalidate: true },
-        h('h2', { id: 'auth-modal-title', style: 'margin: 0 0 0.5rem 0;', text: 'Create your student account' }),
-        h('p', { class: 'muted', style: 'margin: 0 0 1.25rem 0;', text: 'Personalize your AI Tutor, preserve your streaks, and unlock achievement badges.' }),
+      const form = h('form', { class: 'auth-form-view', novalidate: true },
+        h('h2', { id: 'auth-modal-title', class: 'auth-form-title', text: 'Create your student account' }),
+        h('p', { class: 'auth-form-subtitle', text: 'Personalize your AI Tutor, preserve your streaks, and unlock achievement badges.' }),
         alertArea,
         h('div', { class: 'field' },
           h('label', { text: 'Full Name' }),
@@ -2001,13 +2002,13 @@
         checklist,
         h('div', { class: 'field' },
           h('label', { text: 'Confirm Password' }),
-          confirmPwdInput),
+          confirmPwdWrap),
         submitBtn,
-        h('p', { class: 'muted', style: 'text-align: center; margin-top: 1rem; font-size: 13px;' },
+        h('p', { class: 'auth-switch-prompt' },
           "Already have an account? ",
           h('button', {
             type: 'button',
-            class: 'link',
+            class: 'auth-switch-btn',
             text: 'Sign in here',
             onclick: () => switchTab('login')
           }))
@@ -2091,15 +2092,20 @@
     updateNavUser();
     document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
 
+    const logoBadge = renderEduMindLogo(34);
+
     const hero = h('div', { class: 'landing-auth-hero' },
-      h('div', { class: 'landing-auth-logo-badge', 'aria-hidden': 'true' },
-        svgEl('svg', { width: '32', height: '32', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-          svgEl('path', { d: 'M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z' }),
-          svgEl('path', { d: 'M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z' })
-        )
+      logoBadge,
+      h('h1', { class: 'landing-auth-title' },
+        h('span', { text: 'Welcome to EduMind ' }),
+        h('span', { class: 'brand-ai', text: 'AI' })
       ),
-      h('h1', { text: 'Welcome to EduMind AI' }),
-      h('p', { text: 'Sign in to access your personal dashboard, learning streaks, badges, and AI Tutor.' })
+      h('p', { class: 'landing-auth-subtitle', text: 'Sign in to access your personal dashboard, daily practice, learning streaks, badges, and AI Tutor.' }),
+      h('div', { class: 'landing-auth-badges' },
+        h('span', { class: 'landing-mini-badge' }, h('span', { class: 'badge-spark', text: '✦' }), h('span', { text: 'Misconception Detective' })),
+        h('span', { class: 'landing-mini-badge' }, h('span', { class: 'badge-spark', text: '✦' }), h('span', { text: 'Daily Streaks & Quests' })),
+        h('span', { class: 'landing-mini-badge' }, h('span', { class: 'badge-spark', text: '✦' }), h('span', { text: 'Gemini AI Tutor' }))
+      )
     );
 
     const authBox = buildAuthComponent({
