@@ -32,6 +32,8 @@ python tests/e2e_browser.py http://127.0.0.1:8000   # optional real-browser chec
 | `EDUMIND_DB` | `data/edumind.db` | SQLite file |
 | `EDUMIND_RATE_LIMIT` | `300` | requests per minute per IP on `/api` (`0` = off) |
 | `EDUMIND_MODEL` | `models/misconception_clf.joblib` | optional ML second opinion (`""` = off) |
+| `GEMINI_API_KEY` | `""` | Google Gemini API key for explanation refinement and AI Tutor |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name (e.g. `gemini-2.5-flash`, `gemini-1.5-flash`) |
 
 Deploying: any host that runs Python works, e.g. `uvicorn app.asgi:app --host 0.0.0.0 --port $PORT`.
 Put the SQLite file on a persistent disk, or move to PostgreSQL before real use.
@@ -45,8 +47,9 @@ Put the SQLite file on a persistent disk, or move to PostgreSQL before real use.
 | FR-12 Revision planner | **Basic**: a failed mastery check queues the topic for review the next day |
 | Privacy: minimal data, deletion | **Done**: random learner ID, no name or email, "Delete my data" erases everything |
 | Safety: rate limiting, input validation, CSP and security headers | **Done** |
+| Gemini explanation refinement | **Done**: natural-language refinement of diagnosed learning interventions via Gemini while preserving mathematical verification and fallback safety |
+| AI Tutor Chatbot | **Done**: floating learning assistant in bottom-right corner for exploring concepts inside and beyond syllabus |
 | FR-09 PDF upload and Q&A, FR-11 Hindi and Marathi, FR-13 teacher review console, accounts and login | **Not built** (P1/P2 in the plan) |
-| LLM-written explanations | **Deliberately not used**: every explanation is reviewed, fixed text. An LLM can be added later behind the same `intervention` shape |
 
 The question bank has 53 generated, filtered questions (5 skills). Every question is checked by
 tests so that each misconception's predicted wrong answer is distinct from the correct one.
@@ -75,6 +78,8 @@ The confidence number is an engineering indicator, **not a calibrated probabilit
 | `GET /api/progress?learner_id=` | skills, recurring misconceptions, review queue |
 | `GET /api/quiz`, `POST /api/quiz/grade` | stand-alone quiz mode |
 | `GET /api/patterns/{id}/intervention?question_id=` | the reviewed explanation for a pattern |
+| `GET /api/tutor/status` | check Gemini availability and configured model |
+| `POST /api/tutor/chat` | AI Tutor conversation with difficulty and mode support |
 | `GET /api/health`, `GET /api/skills` | health and topic list |
 
 Interactive docs: `/docs` while the server runs.

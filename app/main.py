@@ -56,6 +56,8 @@ class QuizAnswer(BaseModel):
 
 class QuizGradeIn(BaseModel):
     answers: list[QuizAnswer] = Field(min_length=1, max_length=20)
+    learner_id: str | None = Field(default=None, pattern=ID)
+    idempotency_key: str | None = Field(default=None, max_length=128)
 
 
 class TutorChatMessage(BaseModel):
@@ -176,6 +178,13 @@ def create_app(db_path: str | None = None, rate_limit_per_minute: int | None = N
     def progress(learner_id: str = Query(pattern=ID)):
         return service.progress(learner_id)
 
+    @app.get("/api/progress/analytics")
+    def progress_analytics(
+        learner_id: str = Query(pattern=ID),
+        days: int = Query(7, ge=1, le=90)
+    ):
+        return service.progress_analytics(learner_id, days)
+
     @app.get("/api/quiz")
     def quiz(skill: str | None = None, n: int = Query(5, ge=1, le=10),
              difficulty: int | None = Query(None, ge=1, le=2), seed: int | None = None):
@@ -183,7 +192,19 @@ def create_app(db_path: str | None = None, rate_limit_per_minute: int | None = N
 
     @app.post("/api/quiz/grade")
     def quiz_grade(body: QuizGradeIn):
-        return service.grade_quiz([a.model_dump() for a in body.answers])
+        return service.grade_quiz(
+            [a.model_dump() for a in body.answers],
+            learner_id=body.learner_id,
+            idempotency_key=body.idempotency_key,
+        )
+
+    @app.get("/api/gamification/summary")
+    def gamification_summary(learner_id: str = Query(pattern=ID)):
+        return service.get_gamification_summary(learner_id)
+
+    @app.get("/api/gamification/quests")
+    def gamification_quests(learner_id: str = Query(pattern=ID)):
+        return {"quests": service.get_daily_quests(learner_id)}
 
     @app.get("/api/tutor/status")
     def tutor_status():

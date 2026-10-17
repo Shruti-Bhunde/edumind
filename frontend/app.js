@@ -297,6 +297,215 @@
     'name': '🎨',
   };
 
+  // ---------------------------------------------------- GAMIFICATION COMPONENTS
+  function triggerConfetti() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.className = 'confetti-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const colors = ['#2864A8', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+    const particles = [];
+    const count = 48;
+
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: canvas.width * 0.5 + (Math.random() - 0.5) * 200,
+        y: canvas.height * 0.35 + (Math.random() - 0.5) * 60,
+        vx: (Math.random() - 0.5) * 8,
+        vy: -Math.random() * 6 - 3,
+        size: Math.random() * 6 + 4,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * 360,
+        vRot: (Math.random() - 0.5) * 10,
+      });
+    }
+
+    let start = null;
+    const duration = 1200;
+
+    function frame(t) {
+      if (!start) start = t;
+      const elapsed = t - start;
+      if (elapsed > duration) {
+        canvas.remove();
+        return;
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const alpha = Math.max(0, 1 - elapsed / duration);
+
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.22;
+        p.rotation += p.vRot;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
+        ctx.restore();
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function showBadgeUnlockedModal(badges) {
+    if (!badges || !badges.length) return;
+    const modalBackdrop = h('div', {
+      class: 'modal-backdrop',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-labelledby': 'badge-modal-title',
+    });
+
+    const isSingle = badges.length === 1;
+    const first = badges[0];
+
+    const bodyContent = isSingle
+      ? [
+          h('div', { class: 'badge-modal-icon-big' }, first.icon || '🏆'),
+          h('h2', { id: 'badge-modal-title', class: 'badge-modal-title', text: first.name }),
+          h('p', { class: 'badge-modal-desc', text: first.description }),
+        ]
+      : [
+          h('h2', { id: 'badge-modal-title', class: 'badge-modal-title', text: `${badges.length} Badges Unlocked! 🎉` }),
+          h('div', { class: 'modal-badges-carousel' }, badges.map(b => h('div', { class: 'modal-badge-item' },
+            h('span', { class: 'modal-badge-item-icon', text: b.icon || '🏆' }),
+            h('div', { class: 'modal-badge-item-info' },
+              h('strong', { text: b.name }),
+              h('span', { text: b.description }))))),
+        ];
+
+    const modalBox = h('div', { class: 'badge-modal-box' },
+      h('div', { class: 'badge-modal-stars', text: '✨ 🌟 ✨' }),
+      ...bodyContent,
+      h('div', { class: 'actions', style: 'justify-content: center;' },
+        h('button', {
+          class: 'btn btn-lg',
+          type: 'button',
+          onclick: () => modalBackdrop.remove(),
+          text: 'Awesome! Keep learning',
+        }))
+    );
+
+    modalBackdrop.append(modalBox);
+    modalBackdrop.addEventListener('click', (e) => {
+      if (e.target === modalBackdrop) modalBackdrop.remove();
+    });
+    document.body.append(modalBackdrop);
+  }
+
+  function streakIndicator(streak) {
+    if (!streak) return null;
+
+    const calendarNodes = (streak.weekly_calendar || []).map(day => {
+      const dotCls = 'calendar-day-dot' + (day.active ? ' active' : '') + (day.is_today ? ' is-today' : '');
+      const icon = day.active ? '✓' : '';
+      return h('div', { class: 'calendar-day' },
+        h('span', { class: 'calendar-day-name', text: day.day_name }),
+        h('span', { class: dotCls, text: icon, title: `${day.date}: ${day.active ? 'Learned' : 'No activity'}` }));
+    });
+
+    return h('div', { class: 'streak-card', 'aria-label': 'Daily Learning Streak' },
+      h('div', { class: 'streak-card-header' },
+        h('div', { class: 'streak-badge-main' },
+          h('span', { class: 'streak-flame-icon', 'aria-hidden': 'true', text: streak.current > 0 ? '🔥' : '🌱' }),
+          h('div', { class: 'streak-title-wrap' },
+            h('h3', { text: streak.current > 0 ? `${streak.current}-Day Streak` : 'Start your streak today' }),
+            h('p', { text: streak.message }))),
+        h('div', { class: 'streak-stats-pill' },
+          h('span', { text: `🔥 Current: ${streak.current}` }),
+          h('span', { text: `⚡ Best: ${streak.longest}` }))),
+      h('div', { class: 'weekly-calendar', 'aria-label': 'Past 7 days activity' }, calendarNodes));
+  }
+
+  function dailyQuestsSection(quests) {
+    if (!quests || !quests.length) return null;
+
+    const questCards = quests.map(q => {
+      const isCompleted = q.status === 'Completed';
+      const pct = Math.min(100, Math.round((q.progress / q.target) * 100));
+
+      const statusChipClass = isCompleted ? 'chip ok' : q.progress > 0 ? 'chip teal' : 'chip';
+      const actionBtn = isCompleted
+        ? h('button', { class: 'btn secondary', type: 'button', disabled: true, text: 'Completed ✓' })
+        : h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: () => startQuiz(null),
+            text: q.progress > 0 ? 'Continue Quest →' : 'Start Quest →',
+          });
+
+      return h('div', { class: 'quest-card' + (isCompleted ? ' completed' : '') },
+        h('div', null,
+          h('div', { class: 'quest-card-top' },
+            h('h3', { class: 'quest-title', text: q.title }),
+            h('span', { class: statusChipClass, text: q.status })),
+          h('p', { class: 'quest-desc', text: q.description }),
+          q.reward_badge ? h('div', { class: 'quest-reward-pill' },
+            h('span', { text: q.reward_badge.icon || '🏆' }),
+            h('span', { text: `Reward: ${q.reward_badge.name}` })) : null),
+        h('div', null,
+          h('div', { class: 'quest-progress-wrap' },
+            h('div', { class: 'quest-progress-bar-bg' },
+              h('div', { class: 'quest-progress-bar-fill', style: `width: ${pct}%;` })),
+            h('div', { class: 'quest-progress-text' },
+              h('span', { text: q.objective }),
+              h('span', { text: `${q.progress} / ${q.target}` }))),
+          h('div', { class: 'quest-card-footer' }, actionBtn)));
+    });
+
+    return h('div', { class: 'quests-section' },
+      h('div', { class: 'quests-section-header' },
+        h('h2', null,
+          h('span', { 'aria-hidden': 'true', text: '🎯' }),
+          h('span', { text: 'Today’s Daily Quests' })),
+        h('span', { class: 'chip primary', text: 'Resets daily' })),
+      h('div', { class: 'quests-grid' }, questCards));
+  }
+
+  function badgeCollectionSection(badges, earnedCount, totalCount) {
+    if (!badges || !badges.length) return null;
+
+    const cards = badges.map(b => {
+      const isEarned = b.earned;
+      const cardCls = 'badge-card' + (isEarned ? ' earned' : ' locked');
+
+      const datePill = isEarned && b.awarded_at
+        ? h('span', { class: 'badge-date-pill', text: `Earned ${new Date(b.awarded_at).toLocaleDateString()}` })
+        : h('span', { class: 'badge-lock-pill' },
+            h('svg', { width: '12', height: '12', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.5' },
+              svgEl('rect', { x: '3', y: '11', width: '18', height: '11', rx: '2', ry: '2' }),
+              svgEl('path', { d: 'M7 11V7a5 5 0 0110 0v4' })),
+            h('span', { text: 'Locked' }));
+
+      return h('div', { class: cardCls },
+        h('div', { class: 'badge-icon-wrap' }, b.icon || '🏆'),
+        h('h4', { class: 'badge-name', text: b.name }),
+        h('p', { class: 'badge-condition', text: isEarned ? b.description : `Unlock: ${b.unlock_condition}` }),
+        datePill);
+    });
+
+    return h('div', { class: 'badges-section' },
+      h('div', { class: 'quests-section-header' },
+        h('h2', null,
+          h('span', { 'aria-hidden': 'true', text: '🏆' }),
+          h('span', { text: 'Achievement Badges' })),
+        h('span', { class: 'chip ok', text: `${earnedCount || 0} of ${totalCount || badges.length} unlocked` })),
+      h('div', { class: 'badges-grid' }, cards));
+  }
+
   // ---------------------------------------------------- VIEWS
   function setActiveNav(navId) {
     document.querySelectorAll('nav .nav-btn').forEach(btn => {
@@ -311,9 +520,11 @@
 
     let skills = [];
     let progressData = null;
+    let gamificationData = null;
     try {
       skills = await request('/api/skills');
       progressData = await withLearner(id => request(`/api/progress?learner_id=${id}`));
+      gamificationData = await withLearner(id => request(`/api/gamification/summary?learner_id=${id}`));
     } catch (e) {
       return failure(e, showDashboard);
     }
@@ -331,7 +542,11 @@
         : "Practise with guided feedback that explains what happened and why, without judgement. Build confidence one concept at a time." }),
       h('div', { class: 'actions' },
         h('button', { class: 'btn btn-lg', type: 'button', onclick: () => startPractice(null), text: 'Start mixed practice' }),
+        h('button', { class: 'btn btn-lg', type: 'button', style: 'background: #0284c7;', onclick: () => startQuiz(null), text: 'Take a quiz 🎯' }),
         h('button', { class: 'btn btn-lg secondary', type: 'button', onclick: showLearn, text: 'Browse topics' })));
+
+    const streakWidget = gamificationData?.streak ? streakIndicator(gamificationData.streak) : null;
+    const questsWidget = gamificationData?.quests ? dailyQuestsSection(gamificationData.quests) : null;
 
     let snapshotSection = null;
     if (isReturning) {
@@ -360,7 +575,9 @@
           h('div', { class: 'topic-footer' },
             h('span', { class: 'link', text: 'Practise →' }))))));
 
-    view(heroCard, snapshotSection, topicsOverview);
+    const badgesWidget = gamificationData?.badges ? badgeCollectionSection(gamificationData.badges, gamificationData.earned_count, gamificationData.total_badges) : null;
+
+    view(heroCard, streakWidget, questsWidget, snapshotSection, topicsOverview, badgesWidget);
   }
 
   // VIEW 2: LEARN / TOPIC BROWSER (FR-03)
@@ -466,6 +683,7 @@
 
   function afterAttempt(q, answer, res, skillId) {
     if (res.correct) {
+      triggerConfetti();
       view(h('div', { class: 'card success', role: 'status' },
         h('h2', { text: res.message || 'Correct — nice work!' }),
         res.note ? h('p', { text: res.note }) : null,
@@ -622,6 +840,10 @@
 
   function afterMastery(sessionId, res, originalQ, skillId) {
     if (res.outcome === 'mastered') {
+      triggerConfetti();
+      if (res.newly_unlocked_badges && res.newly_unlocked_badges.length) {
+        showBadgeUnlockedModal(res.newly_unlocked_badges);
+      }
       view(h('div', { class: 'card success', role: 'status' },
         h('h2', { text: 'Great progress!' }),
         h('p', { text: res.message || 'You solved the fresh question correctly!' }),
@@ -642,14 +864,561 @@
     }
   }
 
+  // ---------------------------------------------------- ANALYTICS & CHARTS
+  function svgText(attrs, text) {
+    const el = svgEl('text', attrs);
+    el.textContent = text;
+    return el;
+  }
+
+  function createSummaryCardsRow(summary) {
+    if (!summary) return null;
+
+    const cards = [
+      {
+        icon: '📝',
+        label: 'Problems Attempted',
+        value: summary.total_attempts != null ? String(summary.total_attempts) : '0',
+        subtext: summary.total_attempts === 1 ? '1 question' : `${summary.total_attempts} questions`,
+        colorCls: 'metric-attempts',
+      },
+      {
+        icon: '🎯',
+        label: 'Average Accuracy',
+        value: summary.average_accuracy != null ? `${Math.round(summary.average_accuracy)}%` : '—',
+        subtext: summary.total_correct != null && summary.total_attempts > 0
+          ? `${summary.total_correct} of ${summary.total_attempts} correct`
+          : 'No attempts',
+        colorCls: 'metric-accuracy',
+      },
+      {
+        icon: '📅',
+        label: 'Active Study Days',
+        value: summary.active_days != null ? `${summary.active_days}` : '0',
+        subtext: summary.active_days === 1 ? '1 day practiced' : `${summary.active_days} days practiced`,
+        colorCls: 'metric-days',
+      },
+      {
+        icon: '🔥',
+        label: 'Current Streak',
+        value: `${summary.current_streak || 0}d`,
+        subtext: `Best: ${summary.longest_streak || 0} days`,
+        colorCls: 'metric-streak',
+      },
+    ];
+
+    const cardsNodes = cards.map(c => h('div', { class: `summary-metric-card ${c.colorCls}` },
+      h('div', { class: 'summary-metric-top' },
+        h('span', { class: 'summary-metric-icon', text: c.icon }),
+        h('span', { class: 'summary-metric-label', text: c.label })),
+      h('div', { class: 'summary-metric-val', text: c.value }),
+      h('div', { class: 'summary-metric-sub', text: c.subtext })));
+
+    const insightBanner = summary.insight_text
+      ? h('div', { class: 'analytics-insight-banner' },
+          h('span', { class: 'insight-icon', text: '💡' }),
+          h('p', { text: summary.insight_text }))
+      : null;
+
+    return h('div', null,
+      h('div', { class: 'summary-metrics-grid' }, cardsNodes),
+      insightBanner);
+  }
+
+  function createProgressOverTimeChart(timeline, selectedDays) {
+    const card = h('div', { class: 'chart-card' });
+
+    const header = h('div', { class: 'chart-header-row' },
+      h('div', { class: 'chart-title-area' },
+        h('h3', { text: 'Learning Progress Over Time' }),
+        h('p', { text: 'Track your daily practice and accuracy.' })),
+      h('div', { class: 'chart-legend' },
+        h('div', { class: 'legend-item' },
+          h('span', { class: 'legend-swatch swatch-accuracy' }),
+          h('span', { text: 'Daily Accuracy (%)' })),
+        h('div', { class: 'legend-item' },
+          h('span', { class: 'legend-swatch swatch-attempts' }),
+          h('span', { text: 'Problems Attempted' }))));
+
+    card.append(header);
+
+    const hasAnyActivity = timeline && timeline.some(t => t.attempts > 0);
+    if (!hasAnyActivity) {
+      card.append(
+        h('div', { class: 'chart-empty-state' },
+          h('span', { class: 'chart-empty-icon', text: '📈' }),
+          h('h4', { text: 'No practice data in this time range' }),
+          h('p', { text: `You haven't attempted any questions in the last ${selectedDays} days. Once you solve questions or take quizzes, your daily accuracy and problem counts will be tracked here.` }),
+          h('button', { class: 'btn', type: 'button', onclick: () => startPractice(null), text: 'Start Practice Now' }))
+      );
+      return card;
+    }
+
+    const tooltip = h('div', { class: 'chart-floating-tooltip' });
+    const wrap = h('div', { class: 'chart-svg-wrap' });
+    wrap.append(tooltip);
+
+    const svgW = 800;
+    const svgH = 320;
+    const padL = 52;
+    const padR = 48;
+    const padT = 25;
+    const padB = 45;
+    const plotW = svgW - padL - padR;
+    const plotH = svgH - padT - padB;
+
+    const maxAttemptsRaw = Math.max(...timeline.map(t => t.attempts), 4);
+    const maxAttempts = maxAttemptsRaw <= 5 ? 5 : Math.ceil(maxAttemptsRaw / 5) * 5;
+
+    const svg = svgEl('svg', {
+      viewBox: `0 0 ${svgW} ${svgH}`,
+      width: '100%',
+      height: 'auto',
+      role: 'img',
+      'aria-label': 'Learning Progress Over Time Line Chart',
+    });
+
+    // Defs: gradient for accuracy area fill
+    const defs = svgEl('defs');
+    const grad = svgEl('linearGradient', {
+      id: 'accGradient',
+      x1: '0',
+      y1: '0',
+      x2: '0',
+      y2: '1',
+    });
+    const stop1 = svgEl('stop', { offset: '0%', 'stop-color': '#8b5cf6', 'stop-opacity': '0.32' });
+    const stop2 = svgEl('stop', { offset: '100%', 'stop-color': '#8b5cf6', 'stop-opacity': '0.0' });
+    grad.append(stop1, stop2);
+    defs.append(grad);
+    svg.append(defs);
+
+    // Horizontal gridlines & Left/Right axis labels (0%, 25%, 50%, 75%, 100%)
+    const gridSteps = [0, 0.25, 0.5, 0.75, 1];
+    gridSteps.forEach(fraction => {
+      const y = padT + (1 - fraction) * plotH;
+      svg.append(svgEl('line', {
+        x1: padL,
+        y1: y,
+        x2: padL + plotW,
+        y2: y,
+        stroke: '#f1f5f9',
+        'stroke-width': '1',
+        'stroke-dasharray': fraction === 0 ? 'none' : '4,4',
+      }));
+
+      // Left axis label (Accuracy %)
+      svg.append(svgText({
+        x: padL - 8,
+        y: y + 4,
+        'text-anchor': 'end',
+        'font-size': '11',
+        fill: '#8b5cf6',
+        'font-weight': '600',
+        'font-family': 'sans-serif',
+      }, `${Math.round(fraction * 100)}%`));
+
+      // Right axis label (Problems Attempted)
+      const attVal = Math.round(fraction * maxAttempts);
+      svg.append(svgText({
+        x: padL + plotW + 8,
+        y: y + 4,
+        'text-anchor': 'start',
+        'font-size': '11',
+        fill: '#0ea5e9',
+        'font-weight': '600',
+        'font-family': 'sans-serif',
+      }, String(attVal)));
+    });
+
+    const n = timeline.length;
+    const colW = plotW / n;
+
+    // Line 1: Problems Attempted Line (Sky Blue Line Graph)
+    let attPathD = '';
+    timeline.forEach((item, i) => {
+      const cx = padL + (i + 0.5) * colW;
+      const cy = padT + (1 - item.attempts / maxAttempts) * plotH;
+      attPathD += (i === 0 ? `M ${cx} ${cy}` : ` L ${cx} ${cy}`);
+    });
+
+    if (timeline.length > 1) {
+      svg.append(svgEl('path', {
+        d: attPathD,
+        fill: 'none',
+        stroke: '#0ea5e9',
+        'stroke-width': '2.5',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'stroke-dasharray': '5,4',
+        pathLength: '1000',
+        class: 'chart-animated-line-secondary',
+      }));
+    }
+
+    // Points on Problems Attempted Line
+    timeline.forEach((item, i) => {
+      if (item.attempts > 0) {
+        const cx = padL + (i + 0.5) * colW;
+        const cy = padT + (1 - item.attempts / maxAttempts) * plotH;
+        svg.append(svgEl('circle', {
+          cx,
+          cy,
+          r: 3.5,
+          fill: '#0ea5e9',
+          stroke: '#ffffff',
+          'stroke-width': '1.5',
+          class: 'chart-animated-point',
+          style: `animation-delay: ${0.3 + i * 0.02}s;`,
+        }));
+      }
+    });
+
+    // Line 2: Daily Accuracy (%) Line & Gradient Area (Purple Line Graph)
+    const activePoints = [];
+    timeline.forEach((item, i) => {
+      if (item.has_activity && item.accuracy != null) {
+        const cx = padL + (i + 0.5) * colW;
+        const cy = padT + (1 - item.accuracy / 100) * plotH;
+        activePoints.push({ x: cx, y: cy, item, index: i });
+      }
+    });
+
+    if (activePoints.length > 1) {
+      let pathD = `M ${activePoints[0].x} ${activePoints[0].y}`;
+      for (let k = 1; k < activePoints.length; k++) {
+        pathD += ` L ${activePoints[k].x} ${activePoints[k].y}`;
+      }
+
+      // Shaded area under accuracy line
+      const firstPt = activePoints[0];
+      const lastPt = activePoints[activePoints.length - 1];
+      const areaD = `${pathD} L ${lastPt.x} ${padT + plotH} L ${firstPt.x} ${padT + plotH} Z`;
+      svg.append(svgEl('path', {
+        d: areaD,
+        fill: 'url(#accGradient)',
+        class: 'chart-animated-area',
+      }));
+
+      // Accuracy stroke line
+      svg.append(svgEl('path', {
+        d: pathD,
+        fill: 'none',
+        stroke: '#8b5cf6',
+        'stroke-width': '3.5',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        pathLength: '1000',
+        class: 'chart-animated-line',
+      }));
+    }
+
+    activePoints.forEach((pt, idx) => {
+      svg.append(svgEl('circle', {
+        cx: pt.x,
+        cy: pt.y,
+        r: 5,
+        fill: '#8b5cf6',
+        stroke: '#ffffff',
+        'stroke-width': '2',
+        class: 'chart-animated-point',
+        style: `animation-delay: ${0.45 + idx * 0.03}s;`,
+      }));
+
+      if (activePoints.length === 1) {
+        // Single point indicator pulse halo
+        svg.append(svgEl('circle', {
+          cx: pt.x,
+          cy: pt.y,
+          r: 9,
+          fill: 'none',
+          stroke: '#8b5cf6',
+          'stroke-width': '1.5',
+          'stroke-opacity': '0.4',
+          class: 'chart-animated-point',
+          style: `animation-delay: 0.5s;`,
+        }));
+      }
+    });
+
+    // X-Axis Date Labels
+    const labelStep = n <= 10 ? 1 : (n <= 31 ? 3 : 7);
+    timeline.forEach((item, i) => {
+      if (i % labelStep === 0 || i === n - 1) {
+        const cx = padL + (i + 0.5) * colW;
+        svg.append(svgText({
+          x: cx,
+          y: padT + plotH + 18,
+          'text-anchor': 'middle',
+          'font-size': '11',
+          fill: '#64748b',
+          'font-family': 'sans-serif',
+        }, item.label));
+      }
+    });
+
+    // Interactive Hover Columns
+    timeline.forEach((item, i) => {
+      const colX = padL + i * colW;
+      const hoverRect = svgEl('rect', {
+        x: colX,
+        y: padT,
+        width: colW,
+        height: plotH,
+        fill: 'transparent',
+        style: 'cursor: pointer;',
+      });
+
+      hoverRect.addEventListener('pointerenter', () => {
+        hoverRect.setAttribute('fill', '#f8fafc');
+        hoverRect.setAttribute('fill-opacity', '0.45');
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `<strong>${item.day_name}, ${item.label}</strong>` +
+          `<div class="tt-row">🟦 Problems: <b>${item.attempts}</b> (${item.correct} correct)</div>` +
+          `<div class="tt-row">🟣 Accuracy: <b>${item.accuracy != null ? item.accuracy + '%' : 'No activity'}</b></div>`;
+
+        const tooltipX = colX + colW / 2;
+        const activePt = activePoints.find(p => p.index === i);
+        const tooltipY = activePt ? activePt.y : (padT + plotH / 2);
+
+        tooltip.style.left = `${(tooltipX / svgW) * 100}%`;
+        tooltip.style.top = `${(tooltipY / svgH) * 100}%`;
+      });
+
+      hoverRect.addEventListener('pointerleave', () => {
+        hoverRect.setAttribute('fill', 'transparent');
+        tooltip.style.display = 'none';
+      });
+
+      svg.append(hoverRect);
+    });
+
+    wrap.append(svg);
+    card.append(wrap);
+    return card;
+  }
+
+  function createStudyActivityChart(weekdays) {
+    const card = h('div', { class: 'chart-card' });
+
+    const header = h('div', { class: 'chart-header-row' },
+      h('div', { class: 'chart-title-area' },
+        h('h3', { text: 'Study Activity' }),
+        h('p', { text: 'See which days you practice most.' })),
+      h('div', { class: 'chart-legend' },
+        h('div', { class: 'legend-item' },
+          h('span', { class: 'legend-swatch swatch-active-day' }),
+          h('span', { text: 'Top Practice Day' }))));
+
+    card.append(header);
+
+    const hasAnyActivity = weekdays && weekdays.some(w => w.attempts > 0);
+    if (!hasAnyActivity) {
+      card.append(
+        h('div', { class: 'chart-empty-state' },
+          h('span', { class: 'chart-empty-icon', text: '📅' }),
+          h('h4', { text: 'No weekday patterns yet' }),
+          h('p', { text: 'As you practice throughout the week, your attempt distribution across Monday to Sunday will appear here to help you identify your best study days.' }))
+      );
+      return card;
+    }
+
+    const tooltip = h('div', { class: 'chart-floating-tooltip' });
+    const wrap = h('div', { class: 'chart-svg-wrap' });
+    wrap.append(tooltip);
+
+    const svgW = 650;
+    const svgH = 250;
+    const padL = 40;
+    const padR = 25;
+    const padT = 30;
+    const padB = 40;
+    const plotW = svgW - padL - padR;
+    const plotH = svgH - padT - padB;
+
+    const maxAttsRaw = Math.max(...weekdays.map(w => w.attempts), 4);
+    const maxAtts = maxAttsRaw <= 4 ? 4 : Math.ceil(maxAttsRaw / 4) * 4;
+
+    const svg = svgEl('svg', {
+      viewBox: `0 0 ${svgW} ${svgH}`,
+      width: '100%',
+      height: 'auto',
+      role: 'img',
+      'aria-label': 'Study Activity by Weekday Bar Chart',
+    });
+
+    // Horizontal gridlines (0, 50%, 100%)
+    [0, 0.5, 1].forEach(frac => {
+      const y = padT + (1 - frac) * plotH;
+      svg.append(svgEl('line', {
+        x1: padL,
+        y1: y,
+        x2: padL + plotW,
+        y2: y,
+        stroke: '#f1f5f9',
+        'stroke-width': '1',
+      }));
+      svg.append(svgText({
+        x: padL - 8,
+        y: y + 4,
+        'text-anchor': 'end',
+        'font-size': '11',
+        fill: '#94a3b8',
+        'font-family': 'sans-serif',
+      }, String(Math.round(frac * maxAtts))));
+    });
+
+    const colW = plotW / 7;
+    const barW = Math.min(42, colW * 0.58);
+
+    weekdays.forEach((w, i) => {
+      const cx = padL + (i + 0.5) * colW;
+      const bH = w.attempts > 0 ? (w.attempts / maxAtts) * plotH : 2;
+      const bY = padT + plotH - bH;
+      const isTop = w.is_max;
+      const fillColor = isTop ? '#2563eb' : (w.attempts > 0 ? '#0ea5e9' : '#e2e8f0');
+
+      svg.append(svgEl('rect', {
+        x: cx - barW / 2,
+        y: bY,
+        width: barW,
+        height: bH,
+        rx: 4,
+        fill: fillColor,
+        class: 'chart-animated-bar',
+        style: `animation-delay: ${i * 0.08}s;`,
+      }));
+
+      if (w.attempts > 0) {
+        svg.append(svgText({
+          x: cx,
+          y: bY - 6,
+          'text-anchor': 'middle',
+          'font-size': '11',
+          'font-weight': isTop ? 'bold' : 'normal',
+          fill: isTop ? '#1e40af' : '#475569',
+          'font-family': 'sans-serif',
+          class: 'chart-animated-label',
+          style: `animation-delay: ${0.25 + i * 0.08}s;`,
+        }, isTop ? `${w.attempts} ⭐` : String(w.attempts)));
+      }
+
+      svg.append(svgText({
+        x: cx,
+        y: padT + plotH + 18,
+        'text-anchor': 'middle',
+        'font-size': '12',
+        'font-weight': isTop ? '700' : '500',
+        fill: isTop ? '#1e293b' : '#64748b',
+        'font-family': 'sans-serif',
+      }, w.short_name));
+
+      const hoverRect = svgEl('rect', {
+        x: padL + i * colW,
+        y: padT,
+        width: colW,
+        height: plotH,
+        fill: 'transparent',
+        style: 'cursor: pointer;',
+      });
+
+      hoverRect.addEventListener('pointerenter', () => {
+        hoverRect.setAttribute('fill', '#f8fafc');
+        hoverRect.setAttribute('fill-opacity', '0.45');
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `<strong>${w.day_name}</strong>` +
+          `<div class="tt-row">Questions: <b>${w.attempts}</b> (${w.correct} correct)</div>` +
+          `<div class="tt-row">Accuracy: <b>${w.accuracy != null ? w.accuracy + '%' : 'No activity'}</b></div>` +
+          (isTop ? `<div style="color: #60a5fa; margin-top: 0.2rem;">⭐ Most active study day!</div>` : '');
+
+        tooltip.style.left = `${(cx / svgW) * 100}%`;
+        tooltip.style.top = `${((bY - 10) / svgH) * 100}%`;
+      });
+
+      hoverRect.addEventListener('pointerleave', () => {
+        hoverRect.setAttribute('fill', 'transparent');
+        tooltip.style.display = 'none';
+      });
+
+      svg.append(hoverRect);
+    });
+
+    wrap.append(svg);
+    card.append(wrap);
+    return card;
+  }
+
+  function createAnalyticsDashboard(initialAnalytics, learnerId) {
+    let currentDays = initialAnalytics.days || 7;
+    let analyticsData = initialAnalytics;
+
+    const container = h('div', { class: 'analytics-container' });
+
+    const pills = [
+      { label: 'Last 7 Days', days: 7 },
+      { label: 'Last 30 Days', days: 30 },
+      { label: 'Last 90 Days', days: 90 },
+    ];
+
+    const pillsContainer = h('div', { class: 'time-range-pills', role: 'group', 'aria-label': 'Select chart time range' });
+    const contentArea = h('div');
+
+    function renderContent() {
+      pillsContainer.replaceChildren(
+        ...pills.map(p => h('button', {
+          type: 'button',
+          class: 'time-pill-btn' + (p.days === currentDays ? ' active' : ''),
+          text: p.label,
+          onclick: async () => {
+            if (p.days === currentDays) return;
+            currentDays = p.days;
+            contentArea.replaceChildren(spinner('Updating progress analytics…'));
+            renderContent();
+            try {
+              analyticsData = await withLearner(id => request(`/api/progress/analytics?learner_id=${id}&days=${currentDays}`));
+              renderContent();
+            } catch (err) {
+              contentArea.replaceChildren(
+                h('div', { class: 'card error' },
+                  h('p', { text: err.message || 'Could not load analytics for this range.' }),
+                  h('button', { class: 'btn', type: 'button', onclick: renderContent, text: 'Retry' }))
+              );
+            }
+          }
+        }))
+      );
+
+      const summaryRow = createSummaryCardsRow(analyticsData.summary);
+      const progressChart = createProgressOverTimeChart(analyticsData.timeline, currentDays);
+      const studyActivityChart = createStudyActivityChart(analyticsData.weekdays);
+
+      const chartsGrid = h('div', { class: 'charts-grid' }, progressChart, studyActivityChart);
+      contentArea.replaceChildren(summaryRow, chartsGrid);
+    }
+
+    const topBar = h('div', { class: 'analytics-top-bar' },
+      h('div', null,
+        h('h2', { style: 'margin: 0;', text: 'Individual Learning Analytics' }),
+        h('p', { class: 'lead', style: 'margin: 0.2rem 0 0 0; font-size: 0.95rem;', text: 'Real-time performance trends based on your verified practice and quiz history.' })),
+      pillsContainer);
+
+    container.append(topBar, contentArea);
+    renderContent();
+    return container;
+  }
+
   // VIEW 7: PROGRESS & HISTORY (FR-08)
   async function showProgress() {
     setActiveNav('nav-progress');
     view(spinner('Loading your learning progress…'));
 
     let p;
+    let analyticsData = null;
+    let gamificationData = null;
     try {
       p = await withLearner(id => request(`/api/progress?learner_id=${id}`));
+      analyticsData = await withLearner(id => request(`/api/progress/analytics?learner_id=${id}&days=7`));
+      gamificationData = await withLearner(id => request(`/api/gamification/summary?learner_id=${id}`));
     } catch (e) {
       return failure(e, showProgress);
     }
@@ -660,14 +1429,13 @@
 
     const statsHeader = h('div', null,
       h('h1', { text: 'My learning progress' }),
-      h('p', { class: 'lead', text: 'Track how your understanding is developing across different fraction concepts.' }),
-      h('div', { class: 'statrow' },
-        h('div', { class: 'stat' },
-          h('b', { text: String(attemptsCount) }),
-          h('span', { text: 'questions answered' })),
-        h('div', { class: 'stat' },
-          h('b', { text: pct === null ? '—' : `${pct}%` }),
-          h('span', { text: 'answered correctly' }))));
+      h('p', { class: 'lead', text: 'Track how your understanding is developing across different fraction concepts.' }));
+
+    const analyticsDashboard = analyticsData
+      ? createAnalyticsDashboard(analyticsData, learnerId)
+      : null;
+
+    const streakWidget = gamificationData?.streak ? streakIndicator(gamificationData.streak) : null;
 
     const topicsSection = h('div', { class: 'card' },
       h('h2', { text: 'Topic mastery' }),
@@ -699,11 +1467,140 @@
             r.due ? ' — ready to practise now!' : ' — scheduled for tomorrow.'))))
       : null;
 
+    const badgesWidget = gamificationData?.badges ? badgeCollectionSection(gamificationData.badges, gamificationData.earned_count, gamificationData.total_badges) : null;
+
     const bottomActions = h('div', { class: 'actions' },
       h('button', { class: 'btn', type: 'button', onclick: () => startPractice(null), text: 'Continue practice' }),
+      h('button', { class: 'btn', type: 'button', style: 'background: #0284c7;', onclick: () => startQuiz(null), text: 'Take a quiz 🎯' }),
       h('button', { class: 'btn secondary', type: 'button', onclick: showLearn, text: 'Explore topics' }));
 
-    view(statsHeader, topicsSection, ideasSection, reviewSection, bottomActions);
+    view(statsHeader, analyticsDashboard, streakWidget, topicsSection, ideasSection, reviewSection, badgesWidget, bottomActions);
+  }
+
+  // VIEW 8: QUIZ RUNNER (Gamified Quiz Mode)
+  async function startQuiz(skillId) {
+    setActiveNav('nav-quiz');
+    view(spinner('Loading your quiz questions…'));
+
+    let questions = [];
+    try {
+      const url = '/api/quiz?n=5' + (skillId ? `&skill=${encodeURIComponent(skillId)}` : '');
+      const res = await request(url);
+      questions = res.questions || [];
+    } catch (e) {
+      return failure(e, () => startQuiz(skillId));
+    }
+
+    if (!questions.length) {
+      return view(h('div', { class: 'card' },
+        h('h2', { text: 'No questions available' }),
+        h('p', { text: 'Could not load quiz questions at this time.' }),
+        h('div', { class: 'actions' },
+          h('button', { class: 'btn', type: 'button', onclick: showDashboard, text: 'Back to Dashboard' }))));
+    }
+
+    let currentIndex = 0;
+    const userAnswers = [];
+
+    function renderQuestion() {
+      const q = questions[currentIndex];
+      const isLast = currentIndex === questions.length - 1;
+
+      view(
+        h('div', { class: 'quiz-header-card' },
+          h('div', null,
+            h('span', { class: 'chip primary', text: `Quiz — Question ${currentIndex + 1} of ${questions.length}` }),
+            h('h2', { style: 'margin: 0.35rem 0 0 0;', text: q.skill_name || 'Fractions Challenge' })),
+          h('span', { class: 'quiz-score-pill', text: `Question ${currentIndex + 1} / ${questions.length}` })),
+        questionCard(q, {
+          submitLabel: isLast ? 'Finish & submit quiz' : 'Next question →',
+          onSubmit: async (ans) => {
+            userAnswers.push({ question_id: q.id, answer: ans });
+            if (!isLast) {
+              currentIndex++;
+              renderQuestion();
+            } else {
+              await submitQuiz();
+            }
+          },
+          secondary: h('button', {
+            class: 'btn secondary',
+            type: 'button',
+            onclick: () => {
+              if (window.confirm('Quit this quiz and return to Dashboard? Your answers will not be recorded.')) {
+                showDashboard();
+              }
+            },
+            text: 'Quit quiz',
+          }),
+        })
+      );
+    }
+
+    async function submitQuiz() {
+      view(spinner('Grading your quiz answers…'));
+      try {
+        const idempotencyKey = 'quiz-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
+        const gradeRes = await withLearner(lid => request('/api/quiz/grade', {
+          method: 'POST',
+          body: {
+            learner_id: lid,
+            answers: userAnswers,
+            idempotency_key: idempotencyKey,
+          }
+        }));
+
+        if (gradeRes.score > 0) {
+          triggerConfetti();
+        }
+
+        const newBadges = gradeRes.gamification?.newly_unlocked_badges || [];
+        if (newBadges.length > 0) {
+          showBadgeUnlockedModal(newBadges);
+        }
+
+        showQuizResults(gradeRes);
+      } catch (e) {
+        failure(e, () => submitQuiz());
+      }
+    }
+
+    function showQuizResults(res) {
+      const pct = Math.round((res.score / res.total) * 100);
+      const isPerfect = res.score === res.total && res.total >= 3;
+      const isPassing = pct >= 80;
+
+      const title = isPerfect
+        ? '🌟 Perfect Score! Outstanding!'
+        : isPassing
+        ? '🎉 Excellent work!'
+        : 'Good effort! Keep practising!';
+
+      const resultsList = res.results.map((r, i) => {
+        const q = questions[i];
+        return h('div', { class: 'card', style: 'margin-bottom: 0.75rem; border-left: 4px solid ' + (r.correct ? '#10b981' : '#ef4444') },
+          h('div', { style: 'display: flex; justify-content: space-between; align-items: center;' },
+            h('strong', { text: `Question ${i + 1}: ${q.prompt}` }),
+            h('span', { class: 'chip ' + (r.correct ? 'ok' : 'danger'), text: r.correct ? 'Correct ✓' : 'Incorrect ✗' })),
+          !r.correct ? h('p', { class: 'muted', style: 'margin: 0.4rem 0 0 0;' },
+            'Correct answer: ', h('strong', { text: r.answer }),
+            r.message ? ` — ${r.message}` : '') : null);
+      });
+
+      view(
+        h('div', { class: 'card highlight', role: 'status' },
+          h('h1', { text: title }),
+          h('p', { class: 'lead', text: `You scored ${res.score} out of ${res.total} (${pct}%).` }),
+          isPerfect ? h('p', { text: 'You answered every question correctly and earned the Perfect Score badge!' }) : null,
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn btn-lg', type: 'button', onclick: () => startQuiz(skillId), text: 'Try another quiz' }),
+            h('button', { class: 'btn btn-lg secondary', type: 'button', onclick: showDashboard, text: 'Back to Dashboard' }))),
+        h('h2', { text: 'Question Review' }),
+        ...resultsList
+      );
+    }
+
+    renderQuestion();
   }
 
   // VIEW 8: SESSION & PROFILE MODAL (FR-01)
@@ -764,7 +1661,7 @@
     let errorMessage = null;
     let lastFailedText = null;
 
-    const initialGreeting = "Hello! I'm your personalized math tutor. Ask me any question about fractions, request a step-by-step breakdown, or ask for a real-world analogy. How can I help you today?";
+    const initialGreeting = "Hello! I'm your EduMind AI Tutor. Ask me any question to explore new subjects, understand unfamiliar concepts, or discover topics beyond your regular syllabus. What would you like to explore today?";
     const messages = [
       { role: 'bot', text: initialGreeting }
     ];
@@ -846,7 +1743,7 @@
     const input = h('input', {
       type: 'text',
       class: 'tutor-input',
-      placeholder: 'Ask a math question (e.g. Why do we invert and multiply when dividing fractions?)...',
+      placeholder: 'Ask anything (e.g. How do black holes work? What is quantum computing? Explain relational algebra)...',
       onkeydown: (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
@@ -935,9 +1832,10 @@
       if (messages.length === 1 && !isLoading) {
         const starterPrompts = [
           "Teach me something new.",
-          "Why do we invert & multiply when dividing fractions?",
-          "What is the value of tan 45?",
-          "Show me a real-world example.",
+          "What is relational algebra?",
+          "How do black holes bend space and time?",
+          "Show me a real-world analogy.",
+          "Explore a topic beyond my syllabus.",
         ];
         const startersRow = h('div', { class: 'tutor-chips-bar', style: 'padding: 4px 0 8px; border: none; background: transparent;' },
           starterPrompts.map(sp => h('button', {
@@ -1035,6 +1933,7 @@
   document.getElementById('nav-dashboard')?.addEventListener('click', showDashboard);
   document.getElementById('nav-learn')?.addEventListener('click', showLearn);
   document.getElementById('nav-practice')?.addEventListener('click', () => startPractice(null));
+  document.getElementById('nav-quiz')?.addEventListener('click', () => startQuiz(null));
   document.getElementById('nav-progress')?.addEventListener('click', showProgress);
   document.getElementById('nav-profile')?.addEventListener('click', showProfileModal);
   document.getElementById('footer-session-btn')?.addEventListener('click', showProfileModal);

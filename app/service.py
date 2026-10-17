@@ -5,11 +5,12 @@ import json
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
 
 from .db import Database
 from .diagnostic import (Decision, apply_followup, choose_followup, decide, followups_for,
                          initial_scores)
+from .gamification import GamificationEngine
 from .interventions import build_intervention, general_explanation, hint_for
 from .misconceptions import PATTERNS, predictions
 from .questions import SKILLS, BANK, Question, by_skill, check_answer, get_question
@@ -54,6 +55,7 @@ class EduMindService:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.ml = ml  # optional app.ml_hook.MLOpinion; never changes the decision
         self.gemini = gemini  # optional GeminiService; refines explanations, never changes decisions
+        self.gamification = GamificationEngine(self.db)
 
     # ------------------------------------------------------------------ helpers
     def _now(self) -> datetime:
@@ -96,7 +98,11 @@ class EduMindService:
     def delete_learner(self, learner_id: str) -> None:
         self._require_learner(learner_id)
         with self.db.transaction():
-            for table in ("mastery_checks", "diagnostic_sessions", "attempts", "review_queue"):
+            for table in (
+                "mastery_checks", "diagnostic_sessions", "attempts", "review_queue",
+                "gamification_summaries", "activity_dates", "earned_badges",
+                "quiz_completions", "daily_quests"
+            ):
                 self.db.execute(f"DELETE FROM {table} WHERE learner_id=?", (learner_id,))
             self.db.execute("DELETE FROM learners WHERE id=?", (learner_id,))
 
@@ -310,7 +316,9 @@ class EduMindService:
             if result.correct:
                 self.db.execute("UPDATE diagnostic_sessions SET mastery_result='passed' WHERE id=?",
                                 (session_id,))
+                newly_unlocked = self.gamification.process_mastery_success(learner_id, session_id, self._now())
                 return {"correct": True, "outcome": "mastered", "note": result.note,
+                        "newly_unlocked_badges": newly_unlocked,
                         "message": "You solved a brand-new question using the method. "
                                    "That is how we know it is sinking in."}
             failures = self.db.one("SELECT COUNT(*) n FROM mastery_checks WHERE session_id=? AND correct=0",
@@ -324,7 +332,7 @@ class EduMindService:
                         "message": "Not yet, and that's fine. Try another one.",
                         "hint": hint_for(pattern_id, q), "mastery_question": fresh.public()}
             self.db.execute("UPDATE diagnostic_sessions SET mastery_result='failed' WHERE id=?",
-                            (session_id,))
+                             (session_id,))
             self.db.execute("INSERT INTO review_queue(learner_id, skill, due_at, reason) VALUES (?,?,?,?)",
                             (learner_id, q.skill, self._iso(self._now() + REVIEW_DELAY),
                              "Needs another look after a difficult check"))
@@ -375,7 +383,8 @@ class EduMindService:
         rng = random.Random(seed)
         return [q.public() for q in rng.sample(pool, min(n, len(pool)))]
 
-    def grade_quiz(self, answers: list[dict]) -> dict:
+    def grade_quiz(self, answers: list[dict], learner_id: str | None = None,
+                   idempotency_key: str | None = None) -> dict:
         from .fraction_engine import AnswerParseError
         results, score = [], 0
         for item in answers:
@@ -387,7 +396,166 @@ class EduMindService:
                 ok, msg = False, str(e)
             score += int(ok)
             results.append({"question_id": q.id, "correct": ok, "answer": q.answer_text, "message": msg})
-        return {"score": score, "total": len(results), "results": results}
+
+        out: dict[str, Any] = {"score": score, "total": len(results), "results": results}
+        if learner_id:
+            if self.db.one("SELECT 1 FROM learners WHERE id=?", (learner_id,)):
+                now = self._now()
+                now_iso = self._iso(now)
+                is_duplicate = False
+                if idempotency_key:
+                    is_duplicate = bool(self.db.one("SELECT 1 FROM quiz_completions WHERE id=?", (idempotency_key,)))
+                if not is_duplicate:
+                    with self.db.transaction():
+                        for item, res in zip(answers, results):
+                            q = self._question(item["question_id"])
+                            self.db.execute(
+                                "INSERT INTO attempts(learner_id, question_id, skill, submitted, correct, kind, created_at) "
+                                "VALUES (?,?,?,?,?,'quiz',?)",
+                                (learner_id, q.id, q.skill, item["answer"].strip(), int(res["correct"]), now_iso)
+                            )
+                gam = self.gamification.process_quiz_completion(
+                    learner_id=learner_id,
+                    score=score,
+                    total=len(results),
+                    idempotency_key=idempotency_key,
+                    now=now,
+                )
+                out["gamification"] = gam
+        return out
+
+    # ----------------------------------------------------------- gamification
+    def get_gamification_summary(self, learner_id: str) -> dict:
+        self._require_learner(learner_id)
+        return self.gamification.get_summary(learner_id, self._now())
+
+    def get_daily_quests(self, learner_id: str) -> list[dict]:
+        self._require_learner(learner_id)
+        return self.gamification.get_daily_quests(learner_id, self._now())
+
+    # ------------------------------------------------------------- analytics
+    def progress_analytics(self, learner_id: str, days: int = 7) -> dict:
+        self._require_learner(learner_id)
+        if days not in (7, 30, 90):
+            days = 7
+
+        now = self._now()
+        end_date = now.date()
+        start_date = end_date - timedelta(days=days - 1)
+        start_iso = f"{start_date.isoformat()}T00:00:00"
+
+        # Query all attempts for this learner in the selected date range
+        rows = self.db.all(
+            "SELECT id, correct, created_at FROM attempts WHERE learner_id=? AND created_at>=? ORDER BY created_at ASC",
+            (learner_id, start_iso)
+        )
+
+        daily_counts: dict[str, list[int]] = {}
+        weekday_counts: list[list[int]] = [[] for _ in range(7)]
+
+        for r in rows:
+            created_str = r["created_at"]
+            d_str = created_str[:10]
+            try:
+                dt = datetime.fromisoformat(created_str)
+            except Exception:
+                dt = datetime.strptime(d_str, "%Y-%m-%d")
+
+            c = int(r["correct"])
+            if d_str not in daily_counts:
+                daily_counts[d_str] = []
+            daily_counts[d_str].append(c)
+            weekday_counts[dt.weekday()].append(c)
+
+        timeline = []
+        total_attempts = 0
+        total_correct = 0
+        active_days = 0
+
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            d_str = d.strftime("%Y-%m-%d")
+            atts = daily_counts.get(d_str, [])
+            n_atts = len(atts)
+            n_corr = sum(atts)
+            has_act = n_atts > 0
+
+            if has_act:
+                active_days += 1
+                total_attempts += n_atts
+                total_correct += n_corr
+                acc = round((n_corr / n_atts) * 100, 1)
+            else:
+                acc = None
+
+            label = d.strftime("%b %d") if days <= 30 else d.strftime("%m/%d")
+            timeline.append({
+                "date": d_str,
+                "label": label,
+                "day_name": d.strftime("%a"),
+                "attempts": n_atts,
+                "correct": n_corr,
+                "accuracy": acc,
+                "has_activity": has_act,
+            })
+
+        weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        weekday_shorts = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        weekdays = []
+        max_weekday_attempts = 0
+
+        for idx in range(7):
+            w_atts = weekday_counts[idx]
+            n_w_atts = len(w_atts)
+            n_w_corr = sum(w_atts)
+            w_acc = round((n_w_corr / n_w_atts) * 100, 1) if n_w_atts > 0 else None
+            if n_w_atts > max_weekday_attempts:
+                max_weekday_attempts = n_w_atts
+
+            weekdays.append({
+                "weekday_index": idx,
+                "day_name": weekday_names[idx],
+                "short_name": weekday_shorts[idx],
+                "attempts": n_w_atts,
+                "correct": n_w_corr,
+                "accuracy": w_acc,
+                "is_max": False,
+            })
+
+        for w in weekdays:
+            w["is_max"] = (w["attempts"] == max_weekday_attempts and max_weekday_attempts > 0)
+
+        avg_accuracy = round((total_correct / total_attempts) * 100, 1) if total_attempts > 0 else None
+
+        gam_summary = self.gamification.get_summary(learner_id, now)
+        current_streak = gam_summary["streak"]["current"]
+        longest_streak = gam_summary["streak"]["longest"]
+
+        if total_attempts > 0:
+            acc_int = int(round(avg_accuracy or 0))
+            insight_text = (
+                f"You attempted {total_attempts} question{'s' if total_attempts != 1 else ''} "
+                f"in the last {days} days with {acc_int}% accuracy across {active_days} active study day{'s' if active_days != 1 else ''}."
+            )
+        else:
+            insight_text = "No questions attempted in this time range yet. Complete questions or quizzes to start seeing your progress trends!"
+
+        return {
+            "days": days,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "summary": {
+                "total_attempts": total_attempts,
+                "total_correct": total_correct,
+                "average_accuracy": avg_accuracy,
+                "active_days": active_days,
+                "current_streak": current_streak,
+                "longest_streak": longest_streak,
+                "insight_text": insight_text,
+            },
+            "timeline": timeline,
+            "weekdays": weekdays,
+        }
 
     # ------------------------------------------------------------------ tutor
     def tutor_chat(self, message: str, difficulty: str = "Intermediate",

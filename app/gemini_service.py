@@ -25,7 +25,8 @@ except ImportError:
     APIError = Exception  # type: ignore
 
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-flash-lite-latest"
+FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest", "gemini-pro-latest"]
 
 EXPLANATION_SYSTEM_INSTRUCTION = """You are EduMind AI's explanation refinement specialist for middle-school mathematics.
 Your task is to take an already-diagnosed mathematical mistake and the verified learning intervention, and turn it into a clearer, more natural, supportive, student-friendly explanation.
@@ -46,7 +47,7 @@ STEPS:
 3. <Third step>
 """
 
-TUTOR_SYSTEM_INSTRUCTION = """You are EduMind AI Tutor, a friendly educational assistant. Help students learn concepts inside or outside their current syllabus. Answer the student's actual question directly using clear, age-appropriate language based on the selected difficulty level. Explain concepts step by step when useful, use examples and real-world analogies when appropriate, and encourage independent understanding without forcing a quiz. Do not automatically end responses with follow-up questions, suggested quizzes, or offers to explain more. Ask for clarification only when genuinely necessary. Be honest about uncertainty, correct mistakes transparently, and never claim that a response has been verified by a teacher when it has not."""
+TUTOR_SYSTEM_INSTRUCTION = """You are EduMind AI Tutor, an inquisitive, supportive educational guide. You help students explore concepts both inside and outside their regular syllabus. You are NOT just a math tutor; you help learners discover out-of-the-box topics across science, technology, computer science (like relational algebra, databases, algorithms), astronomy, history, philosophy, logic, and everyday curiosities. Answer the student's actual question directly using clear, age-appropriate language based on the selected difficulty level. Explain concepts step by step when useful, use examples and real-world analogies when appropriate, and encourage independent understanding without forcing a quiz. Do not automatically end responses with follow-up questions, suggested quizzes, or offers to explain more. Ask for clarification only when genuinely necessary. Be honest about uncertainty, correct mistakes transparently, and never claim that a response has been verified by a teacher when it has not."""
 
 # Trailing questions pattern to safeguard against unsolicited quiz/follow-up loops
 TRAILING_QUESTION_PATTERN = re.compile(
@@ -59,10 +60,14 @@ class GeminiService:
     """Manages Gemini API calls for explanation refinement and conversational tutoring."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        self.api_key = (api_key or os.environ.get("GEMINI_API_KEY", "")).strip()
-        self.model = (model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip()
+        self._explicit_key = api_key is not None
+        if api_key is None:
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+        self.api_key = api_key.strip()
+        if model is None:
+            model = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
+        self.model = model.strip()
         self._client: Any = None
-
         if self.api_key and GENAI_AVAILABLE:
             try:
                 self._client = genai.Client(api_key=self.api_key)
@@ -70,8 +75,31 @@ class GeminiService:
                 logger.warning("Failed to initialize Gemini Client: %s", type(e).__name__)
                 self._client = None
 
+    def _refresh_config(self) -> None:
+        """Picks up updated GEMINI_API_KEY or GEMINI_MODEL dynamically if modified in .env."""
+        if self._explicit_key:
+            return
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+        except Exception:
+            pass
+        current_env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        current_env_model = os.environ.get("GEMINI_MODEL", "").strip()
+        if current_env_key and current_env_key != self.api_key:
+            self.api_key = current_env_key
+            if GENAI_AVAILABLE:
+                try:
+                    self._client = genai.Client(api_key=self.api_key)
+                except Exception as e:
+                    logger.warning("Failed to initialize Gemini Client with new key: %s", type(e).__name__)
+                    self._client = None
+        if current_env_model:
+            self.model = current_env_model
+
     def is_available(self) -> bool:
         """Returns True if the Gemini client is configured and ready."""
+        self._refresh_config()
         return bool(self.api_key and self._client is not None)
 
     # -------------------------------------------------------------------------
@@ -128,13 +156,24 @@ class GeminiService:
                 temperature=0.3,
                 max_output_tokens=700,
             )
-            response = self._client.models.generate_content(
-                model=self.model,
-                contents=user_prompt,
-                config=config,
-            )
+            models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+            raw_text = ""
+            for mdl in models_to_try:
+                try:
+                    response = self._client.models.generate_content(
+                        model=mdl,
+                        contents=user_prompt,
+                        config=config,
+                    )
+                    if response and response.text:
+                        raw_text = response.text.strip()
+                        self.model = mdl
+                        break
+                except Exception as ex:
+                    if "404" in str(ex) or "not found" in str(ex).lower():
+                        continue
+                    raise
 
-            raw_text = response.text.strip() if response and response.text else ""
             if not raw_text:
                 raise ValueError("Empty response from Gemini")
 
@@ -234,26 +273,50 @@ class GeminiService:
             )
         )
 
+        models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+        last_error = None
+        raw_reply = ""
+
         try:
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 temperature=0.6,
                 max_output_tokens=1000,
             )
-            response = self._client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
+            for mdl in models_to_try:
+                try:
+                    response = self._client.models.generate_content(
+                        model=mdl,
+                        contents=contents,
+                        config=config,
+                    )
+                    if response and response.text:
+                        raw_reply = response.text.strip()
+                        self.model = mdl
+                        break
+                except Exception as e:
+                    err_str = str(e)
+                    last_error = e
+                    if "404" in err_str or "not found" in err_str.lower() or "429" in err_str or "quota" in err_str.lower() or "resource_exhausted" in err_str.lower() or "403" in err_str:
+                        continue
+                    break
 
-            raw_reply = response.text.strip() if response and response.text else ""
             if not raw_reply:
+                if last_error:
+                    err_str = str(last_error)
+                    if "429" in err_str or "quota" in err_str.lower():
+                        raise RuntimeError("Gemini API quota exceeded. Please check your quota/billing at Google AI Studio.") from last_error
+                    if "403" in err_str or "permission_denied" in err_str.lower():
+                        raise RuntimeError("Gemini API access denied. Please verify your API key permissions at Google AI Studio.") from last_error
+                    raise last_error
                 raise ValueError("Empty reply from Gemini")
 
             # Post-processing: Remove any trailing questions/quizzes to strictly adhere to rules
             cleaned_reply = TRAILING_QUESTION_PATTERN.sub("", raw_reply).strip()
             return cleaned_reply or raw_reply
 
+        except RuntimeError:
+            raise
         except APIError as e:
             logger.error("Gemini API error during tutor chat: %s", type(e).__name__)
             raise RuntimeError("EduMind AI Tutor encountered a service error. Please try again shortly.") from e

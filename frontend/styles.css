@@ -1700,3 +1700,916 @@ details li {
     display: none;
   }
 }
+
+/* ==========================================================================
+   GAMIFICATION SYSTEM (Badges, Streaks, Daily Quests, Confetti)
+   ========================================================================== */
+
+/* Confetti Canvas */
+.confetti-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Streak Indicator & Widget */
+.streak-card {
+  background: linear-gradient(135deg, #ffffff 0%, #fffbf0 100%);
+  border: 1px solid #fed7aa;
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.08);
+}
+
+.streak-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.streak-badge-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.streak-flame-icon {
+  font-size: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: flameBounce 2s ease-in-out infinite;
+}
+
+@keyframes flameBounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12) rotate(-3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streak-flame-icon {
+    animation: none;
+  }
+}
+
+.streak-title-wrap h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.streak-title-wrap p {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.88rem;
+  color: #78350f;
+}
+
+.streak-stats-pill {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  color: #92400e;
+  font-weight: 600;
+}
+
+/* Weekly Streak Calendar */
+.weekly-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #fed7aa;
+}
+
+.calendar-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.calendar-day-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #78350f;
+  text-transform: uppercase;
+}
+
+.calendar-day-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  border: 2px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.calendar-day-dot.active {
+  background: #f59e0b;
+  border-color: #d97706;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.35);
+}
+
+.calendar-day-dot.is-today {
+  outline: 2px solid #2864a8;
+  outline-offset: 2px;
+}
+
+/* Daily Quests Section */
+.quests-section {
+  margin-bottom: 2rem;
+}
+
+.quests-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quests-section-header h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.35rem;
+}
+
+.quests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.quest-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.quest-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+.quest-card.completed {
+  background: #f8fafc;
+  border-color: #bbf7d0;
+}
+
+.quest-card.completed::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: #10b981;
+}
+
+.quest-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.quest-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.quest-desc {
+  font-size: 0.88rem;
+  color: #64748b;
+  margin: 0.25rem 0 0.75rem 0;
+  line-height: 1.4;
+}
+
+.quest-progress-wrap {
+  margin: 0.75rem 0;
+}
+
+.quest-progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.quest-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2864a8, #0ea5e9);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.quest-card.completed .quest-progress-bar-fill {
+  background: #10b981;
+}
+
+.quest-progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.35rem;
+  font-weight: 500;
+}
+
+.quest-reward-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  background: #f1f5f9;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: #334155;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.quest-card-footer {
+  margin-top: 0.5rem;
+}
+
+/* Badges Showcase */
+.badges-section {
+  margin-bottom: 2rem;
+}
+
+.badges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1rem;
+}
+
+.badge-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.25rem 1rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.badge-card.earned {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(40, 100, 168, 0.06);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.badge-card.earned:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(40, 100, 168, 0.12);
+  border-color: #93c5fd;
+}
+
+.badge-card.locked {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  opacity: 0.78;
+}
+
+.badge-card.locked:hover {
+  opacity: 1;
+}
+
+.badge-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.9rem;
+  margin-bottom: 0.75rem;
+  background: #eff6ff;
+  border: 2px solid #bfdbfe;
+}
+
+.badge-card.locked .badge-icon-wrap {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
+.badge-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 0.35rem 0;
+}
+
+.badge-card.locked .badge-name {
+  color: #64748b;
+}
+
+.badge-condition {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.badge-date-pill {
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.badge-lock-pill {
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Badge Unlocked Celebration Modal */
+.badge-modal-box {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 2.25rem 2rem;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  animation: modalPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes modalPop {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge-modal-box {
+    animation: none;
+  }
+}
+
+.badge-modal-stars {
+  font-size: 2.2rem;
+  margin-bottom: 0.25rem;
+}
+
+.badge-modal-icon-big {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  margin: 1rem auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 3px solid #60a5fa;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.2);
+}
+
+.badge-modal-title {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0.5rem 0 0.25rem 0;
+}
+
+.badge-modal-desc {
+  font-size: 0.95rem;
+  color: #475569;
+  margin: 0.5rem 0 1.5rem 0;
+}
+
+/* Multi-badge carousel/list inside modal */
+.modal-badges-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 1rem 0 1.5rem 0;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.modal-badge-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.modal-badge-item-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+}
+
+.modal-badge-item-info strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+
+.modal-badge-item-info span {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* Quiz Runner Styles */
+.quiz-header-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.quiz-score-pill {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #2864a8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+}
+
+/* ==========================================================================
+   PROGRESS ANALYTICS & INTERACTIVE GRAPHS
+   ========================================================================== */
+
+.analytics-container {
+  margin-bottom: 2.25rem;
+}
+
+.analytics-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.time-range-pills {
+  display: inline-flex;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 3px;
+  border: 1px solid #e2e8f0;
+}
+
+.time-pill-btn {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.time-pill-btn:hover {
+  color: #1e293b;
+}
+
+.time-pill-btn.active {
+  background: #2864a8;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(40, 100, 168, 0.25);
+}
+
+/* Summary Metrics Row */
+.summary-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.summary-metric-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.15rem 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.summary-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.07);
+}
+
+.summary-metric-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.summary-metric-icon {
+  font-size: 1.25rem;
+}
+
+.summary-metric-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.summary-metric-val {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #1e293b;
+  line-height: 1.1;
+  margin-bottom: 0.25rem;
+}
+
+.summary-metric-sub {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.summary-metric-card.metric-attempts { border-top: 3px solid #0ea5e9; }
+.summary-metric-card.metric-accuracy { border-top: 3px solid #8b5cf6; }
+.summary-metric-card.metric-days { border-top: 3px solid #10b981; }
+.summary-metric-card.metric-streak { border-top: 3px solid #f59e0b; }
+
+.analytics-insight-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.analytics-insight-banner p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #166534;
+  font-weight: 500;
+}
+
+.analytics-insight-banner .insight-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+/* Charts Cards & Grid */
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.chart-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+  position: relative;
+}
+
+.chart-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.chart-title-area h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.chart-title-area p {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+  position: relative;
+}
+
+.legend-swatch.swatch-accuracy {
+  background: #8b5cf6;
+}
+.legend-swatch.swatch-accuracy::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  border: 1.5px solid #ffffff;
+}
+
+.legend-swatch.swatch-attempts {
+  background: #0ea5e9;
+}
+.legend-swatch.swatch-attempts::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  border: 1.5px solid #ffffff;
+}
+
+.legend-swatch.swatch-active-day {
+  width: 12px;
+  height: 12px;
+  background: #2563eb;
+  border-radius: 3px;
+}
+
+/* Chart Canvas & SVG Container */
+.chart-svg-wrap {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chart-svg-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Floating Interactive Tooltip */
+.chart-floating-tooltip {
+  position: absolute;
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  pointer-events: none;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  white-space: nowrap;
+  transform: translate(-50%, -115%);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  line-height: 1.4;
+  border: 1px solid #334155;
+  display: none;
+}
+
+.chart-floating-tooltip strong {
+  display: block;
+  font-size: 0.82rem;
+  color: #93c5fd;
+  margin-bottom: 0.2rem;
+}
+
+.chart-floating-tooltip .tt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Empty Chart State */
+.chart-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 3rem 1.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
+}
+
+.chart-empty-icon {
+  font-size: 2.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.chart-empty-state h4 {
+  margin: 0 0 0.4rem 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.chart-empty-state p {
+  margin: 0 0 1.25rem 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  max-width: 420px;
+}
+
+/* ==========================================================================
+   SVG Chart Keyframe Animations (Line & Bar Graphs)
+   ========================================================================== */
+@keyframes chartLineDraw {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chartAreaFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.22;
+  }
+}
+
+@keyframes chartPointPop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes chartBarGrow {
+  0% {
+    transform: scaleY(0);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes chartLabelFade {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chart-animated-line {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: chartLineDraw 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.chart-animated-line-secondary {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: chartLineDraw 1.2s cubic-bezier(0.25, 1, 0.5, 1) 0.12s forwards;
+}
+
+.chart-animated-area {
+  opacity: 0;
+  animation: chartAreaFadeIn 1s ease-out 0.25s forwards;
+}
+
+.chart-animated-point {
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+  animation: chartPointPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.chart-animated-bar {
+  transform-origin: bottom;
+  transform-box: fill-box;
+  animation: chartBarGrow 0.65s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.chart-animated-label {
+  animation: chartLabelFade 0.4s ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-animated-line,
+  .chart-animated-line-secondary,
+  .chart-animated-area,
+  .chart-animated-point,
+  .chart-animated-bar,
+  .chart-animated-label {
+    animation: none !important;
+    opacity: 1 !important;
+    stroke-dashoffset: 0 !important;
+    transform: none !important;
+  }
+}
+
